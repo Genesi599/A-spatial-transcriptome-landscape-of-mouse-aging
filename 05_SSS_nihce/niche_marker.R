@@ -31,27 +31,8 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check 
         mat <- proxy::dist(all_df, intra_df, method = dist_method) %>%
             as.matrix()
 
-        if (length(intra_df) == 1) {
-            spot_dist <- tibble(cellid = names(mat))
-            spot_dist[[as_label(spot_type)]] <- mat
-        } else {
-            spot_dist <- tibble(cellid = rownames(mat)) %>%
-                mutate(!!spot_type := apply(mat, 1, min))
-
-            # for big matrix, proxy::dist will return 0 (wrong)
-            if(zero_check && min(spot_dist[[as_label(spot_type)]])  == 0) {
-                spot_dist <- df %>%
-                    select(cellid, row, col) %>%
-                    group_nest(cellid) %>%
-                    mutate(
-                        !!spot_type := map_dbl(data, ~{
-                            proxy::dist(.x, intra_df, method = dist_method) %>%
-                            min()
-                        })
-                    ) %>%
-                    select(-data)
-            }
-        }
+        spot_dist <- tibble(cellid = names(mat))
+        spot_dist[[as_label(spot_type)]] <- mat
 
         if (!is.na(FUN)) {
             spot_dist <- spot_dist %>%
@@ -65,7 +46,6 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check 
 
         res <- df %>%
             mutate(!!spot_type := Inf)
-
     }
 
     res %>%
