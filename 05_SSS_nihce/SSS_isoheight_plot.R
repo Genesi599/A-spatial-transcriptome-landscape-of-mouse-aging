@@ -1,58 +1,60 @@
 
+GetAllCoordinates <- function(.data) {
+    .data@images %>%
+        names() %>%
+        unique() %>%
+        map_dfr(~{
+            GetTissueCoordinates(
+                    .data,
+                    image = .x,
+                    cols = c("row", "col"),
+                    scale = NULL
+                ) %>%
+            rownames_to_column(var = "cellid")
+        })
+}
 
-celltype_isoheight_plot <- function(data,
-    density_head,
-    density_tail,
-
+#' high light spot isoheight plot
+#' 
+#' @import ggnewscale
+#' 
+#' @param .data seurat obj
+#' @param density_top expressions use for filter to select the high light spot
+#' @param col_bg background spot color
+#' @param col_top high light spot color
+#' @param col_isoheight isoheight line color
+#' @param col_white_ratio white ratio in isoheight fill colors
+#' @param cols_fill_isoheight isoheight fill colors
+#' @param size_bg background spot size
+#' @param size_top high light spot size
+#' @param nrow number of rows use for facet_wrap
+#' 
+#' @return ggplot obj
+#' 
+celltype_isoheight_plot <- function(
+    .data,
+    density_top,
     col_bg = "gray90",
-    col_cell_head = "darkred",
-    col_cell_tail = "black",
-
-    head_isoheight_col = "white",
-    h_p_w = 0.2,
-    head_cols = c(
-        rep("white", round(100 * h_p_w)),
-        colorRampPalette(brewer.pal(5, "YlOrRd")[2:5])(round(100 * (1 - h_p_w)))
+    col_top = "darkred",
+    col_isoheight = "white",
+    col_white_ratio = 0.2,
+    cols_fill_isoheight = c(
+        rep("white", round(100 * col_white_ratio)),
+        colorRampPalette(brewer.pal(5, "YlOrRd")[2:5])(round(100 * (1 - col_white_ratio)))
     ),
-    t_p_w = h_p_w,
-    tail_cols = c(
-        rep("white", round(100 * t_p_w)),
-        colorRampPalette(brewer.pal(5, "GnBu")[2:5])(round(100 * (1 - t_p_w)))
-    ),
-    name_list = NULL,
-
     size_bg = 0.1,
-    size_cell = size_bg,
+    size_top = size_bg,
+    nrow = 2
+) {
 
-    nrow = 2) {
+    density_top  <- enquo(density_top)
 
-    density_head  <- enquo(density_head)
-
-    if (!missing(density_tail)) {
-        density_tail  <- enquo(density_tail)
-    }
-
-    df <- data@meta.data %>%
+    df <- .data@meta.data %>%
         rownames_to_column("cellid") %>%
         inner_join(
-            GetAllCoordinates(data)
+            GetAllCoordinates(.data)
         ) %>%
         as_tibble()
-
-    if (!is.null(name_list)) {
-        obj_rename_list <- name_list$id %>%
-            setNames(name_list$sample)
-
-        df <- df %>%
-            mutate(
-                sample = obj_rename_list[orig.ident],
-                sample = factor(sample, levels = obj_rename_list)
-            )
-    } else {
-        df <- df %>%
-            arrange(age, sample) %>%
-            mutate(sample = factor(sample, levels = unique(sample)))
-    }
 
     xy_r <- max(df$col, df$row)
 
@@ -62,44 +64,26 @@ celltype_isoheight_plot <- function(data,
             color = col_bg, alpha = 0.5, size = size_bg
         )
 
-    if (!missing(density_tail)) {
-        p <- p +
-            stat_density_2d_filled(
-                data = df %>% filter(!!density_tail),
-                mapping = aes(fill = ..ndensity.., alpha = ..ndensity.. ),
-                geom = "raster", contour = F
-            ) +
-            scale_fill_gradientn(colours = tail_cols)
-    }
-
     p <- p +
         ggnewscale::new_scale_fill() +
         stat_density_2d_filled(
-            data = df %>% filter(!!density_head),
+            data = df %>% filter(!!density_top),
             mapping = aes(fill = ..ndensity.., alpha = ..ndensity.. ),
             geom = "raster", contour = F
         ) +
-        scale_fill_gradientn(colours = head_cols) +
+        scale_fill_gradientn(colours = cols_fill_isoheight) +
         ggnewscale::new_scale_fill() +
         geom_density_2d(
-            data = df %>% filter(!!density_head),
-            color = head_isoheight_col,
+            data = df %>% filter(!!density_top),
+            color = col_isoheight,
             contour_var	= "ndensity",
             show.legend = T
         )
 
-    if (!missing(density_tail)) { 
-        p <- p +
-            geom_point(
-                data = df %>% filter(!!density_tail),
-                color = col_cell_tail, alpha = 0.5, size = size_cell
-            )
-    }
-
     p <- p +
         geom_point(
-            data = df %>% filter(!!density_head),
-            color = col_cell_head, alpha = 0.5, size = size_cell
+            data = df %>% filter(!!density_top),
+            color = col_top, alpha = 0.5, size = size_top
         )
 
     p <- p +

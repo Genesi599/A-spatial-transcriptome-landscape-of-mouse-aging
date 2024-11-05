@@ -21,29 +21,30 @@ PairedColors <- colorRampPalette(colors = (brewer.pal(n = 11, name = "Paired")))
 
 ###############################################################
 
-uniscale_SpatialDimPlot <- function(data,
+uniscale_SpatialDimPlot <- function(
+    .data,
     group.by = NULL,
     cols = NULL,
-    images = names(data@images),
+    images = names(.data@images),
     ncol,
     nrow = ceiling(length(images) / ncol),
     plot_theme = theme(),
     ...
     ) {
-    data_co <- GetAllCoordinates(data)
+    data_co <- GetAllCoordinates(.data)
 
     xy_r <- max(data_co$col, data_co$row)
 
-    r_r <- data@images %>%
+    r_r <- .data@images %>%
         map_dbl(Radius) %>%
         min()
-    data@images <- data@images %>%
+    .data@images <- .data@images %>%
         map( ~{
             .x@spot.radius <- r_r
             .x
         })
 
-    plot_list <- SpatialDimPlot(data,
+    plot_list <- SpatialDimPlot(.data,
             group.by = group.by,
             images = images,
             pt.size.factor = 1.2,
@@ -68,30 +69,31 @@ uniscale_SpatialDimPlot <- function(data,
 }
 
 
-uniscale_SpatialFeaturePlot <- function(data,
+uniscale_SpatialFeaturePlot <- function(
+    .data,
     feature,
     cols = SpatialColors(100),
-    images = names(data@images),
+    images = names(.data@images),
     ncol,
     nrow = ceiling(length(images) / ncol),
-    limit =TRUE,
+    limit = TRUE,
     plot_theme = theme(),
     min_vlaue = NA
     ) {
-    data_co <- GetAllCoordinates(data)
+    data_co <- GetAllCoordinates(.data)
 
     xy_r <- max(data_co$col, data_co$row)
 
-    r_r <- data@images %>%
+    r_r <- .data@images %>%
         map_dbl(Radius) %>%
         min()
-    data@images <- data@images %>%
+    .data@images <- .data@images %>%
         map( ~{
             .x@spot.radius <- r_r
             .x
         })
 
-    plot_list <- SpatialFeaturePlot(data,
+    plot_list <- SpatialFeaturePlot(.data,
             features = feature,
             images = images,
             pt.size.factor = 1.2,
@@ -102,7 +104,7 @@ uniscale_SpatialFeaturePlot <- function(data,
 
     if (limit) {
         data <- FetchData(
-            object = data,
+            object = .data,
             vars = feature
         )
         fill_min <- min(data[[feature]])

@@ -28,7 +28,7 @@ cell_identity_score <- function(data, feature) {
         as_tibble(rownames = "cellid") %>%
         select(cellid, tissue, age, sample, celltype, starts_with("cell_identity_score__")) %>%
         rename_at(vars(starts_with("cell_identity_score__")), ~{
-            t <- names(feature)[as.numeric(gsub("cell_identity_score__","",.x))]
+            t <- names(feature)[as.numeric(gsub("cell_identity_score__", "", .x))]
             str_c("cell_identity_score_", t)
         })
 }
@@ -39,7 +39,7 @@ get_features <- function(df, n) {
             feature_name = cluster
         ) %>%
         group_by(feature_name) %>%
-        top_n(n, -avg_log2FC)%>%
+        top_n(n, -avg_log2FC) %>%
         select(feature_name, gene) %>%
         ungroup() %>%
         group_nest(feature_name) %>%
@@ -78,7 +78,7 @@ message("outside >> how many cores can use now: ", nbrOfWorkers())
 rds <- readRDS(rds_path)
 
 rds_y <- rds %>%
-    subset(age == "Young" | age == "4")
+    subset(age == "2M" | age == "4M")
 
 df <- FindAllMarkers(rds_y) %>%
     as_tibble() %>%

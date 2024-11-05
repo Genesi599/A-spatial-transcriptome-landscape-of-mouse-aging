@@ -20,7 +20,7 @@ GetAllCoordinates <- function(.data) {
 #
 # ################################################################
 
-ImageSpotNeighborsCount <- function(meta.data, celltype_col, neighbor_range, ...) {
+image_spot_neighbors_count <- function(meta.data, celltype_col, neighbor_range, ...) {
     .sample_coord <- meta.data %>%
         select(row,col,!!celltype_col, ...) %>%
         mutate(.celltype = as.numeric(factor(!!celltype_col)))
@@ -46,12 +46,9 @@ ImageSpotNeighborsCount <- function(meta.data, celltype_col, neighbor_range, ...
                     ] %>%
                     as.vector()
 
-                # remove missing
                 .celltype_code <- .celltype_code[which(.celltype_code > 0)]
-                # remove self
                 .celltype_code <- .celltype_code[-match(.celltype_mat[.x,.y], .celltype_code)]
-                # encode
-                # index:种类, value:数量比例
+
                 table(.celltype_code)
             })
         )
@@ -64,30 +61,25 @@ ImageSpotNeighborsCount <- function(meta.data, celltype_col, neighbor_range, ...
 # ################################################################
 
 
-#' roi entropy
+#' SSS niche gradient entropy definition
 #'
-#' @description 在特定区域，根据spot分布，度量切片组织结构的混乱程度
-#' 
-#' @param .data seurat 对象
-#' @param celltype_col meta.data中细胞类别列列名 默认celltype
-#' @param ...  meta.data中细胞类别列列名
-#' @param roi_col 定义区域的列
-#' @param neighbor_range spot邻域范围 默认 1
-#' @param R 重抽样次数
-#' @param using_global_roi_min_spot_num 使用各类ROI的最小值
-#' @param n_work 线程数
+#' @param .data tibble obj
+#' @param celltype_col column in meta.data, use for classifying spots
+#' @param ...  columns in meta.data, and will be reserve in result
+#' @param roi_col column in meta.data, use for classifying niche gradient
+#' @param neighbor_range neighborhood range
+#' @param R resample times
+#' @param n_work number of threads
 #'
-NicheEntropy <- function(.data, 
+niche_grade_entropy <- function(
+    .data, 
     ..., 
-
-    celltype_col = celltype, 
+    celltype_col = seurat_clusters, 
     neighbor_range = 1, 
-
     roi_col, 
     R = 100, 
-    using_global_roi_min_spot_num = F,
-
-    n_work = 3) {
+    n_work = 3
+) {
 
     celltype_col = enquo(celltype_col)
     roi_col = enquo(roi_col)
@@ -118,7 +110,7 @@ NicheEntropy <- function(.data,
         group_nest() %>%
         mutate(
             data = future_lapply(data, function(df) {
-                ImageSpotNeighborsCount(
+                image_spot_neighbors_count(
                     df,
                     celltype_col,
                     neighbor_range,
@@ -131,7 +123,6 @@ NicheEntropy <- function(.data,
         group_by(age, !!roi_col) %>%
         mutate(min_roi_spot_num = n())
     # get roi_min_spot_num
-
     df$min_roi_spot_num <- min(df$min_roi_spot_num)
 
     # get entropy
@@ -164,7 +155,7 @@ NicheEntropy <- function(.data,
                             mutate(
                                 rep_idx = idx,
                                 Pielou = entropy / log(condition))
-                    }, future.chunk.size = Inf, future.seed = TRUE) %>% # 
+                    }, future.chunk.size = Inf, future.seed = TRUE) %>%
                     bind_rows() 
                     
             })

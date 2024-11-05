@@ -15,27 +15,37 @@ GetAllCoordinates <- function(.data) {
         })
 }
 
-#' Neighbor Score
+#' Adjacency score analysis
 #' 
-#' @title 邻域指数
-#' @description 参考文献 https://doi.org/10.1016/j.cmet.2021.07.018
+#' @description  https://doi.org/10.1016/j.cmet.2021.07.018
 #' 
-#' @import Seurat
-#' @import tidyverse
-#' @import future
-#' @import future.apply
+#' @param .data seurat obj
+#' @param ...  columns in meta.data, and will be reserve in result
+#' @param spottype use for classifying spots
+#' @param d farest distance between two spot which will be calculated
+#' @param R resample times
+#' @param spot_number_cutoff min spot number in one image
+#' @param n_work number of threads
 #' 
-#' @param .data seurat对象
-#' @param ... meta.data中的列, 会merge到结果中
-#' @param spottype 分类列名 默认 celltype
-#' @param d 统计距离d之内的spot 默认 2
-#' @param R 抽样次数 默认 50
-#' @param spot_number_cutoff 某类细胞单芯片最少细胞数 默认 10
-#' @param n_work 线程数 默认 3
+#' @return tibble obj <orig.ident, spottype, ..., Neighbor,N_spot,Neighbor_spot,K_z,K_o,K_e,K_sd>
+#' spottype: spot type A
+#' Neighbor: spot type A's neighbor spot type B
+#' N_spot: number of A
+#' Neighbor_spot: number of B
+#' K_z: Adjacency score
+#' K_o: observed score
+#' K_e: mean of simulations
+#' K_sd: sd of simulations
 #' 
-#' @return tibble <orig.ident, spottype, ..., Neighbor,N_spot,Neighbor_spot,K_z,K_o,K_e,K_sd>
-#' 
-NeighborScore <- function(.data, ..., spottype = celltype, d = 1, R = 50, spot_number_cutoff = 10, n_work = 3) {
+neighbor_score <- function(
+    .data, 
+    ..., 
+    spottype = celltype, 
+    d = 1, R = 50, 
+    spot_number_cutoff = 10, 
+    n_work = 3
+) {
+    
     spottype <- enquo(spottype)
     group_vars <- enquos(..., .named = TRUE)
 

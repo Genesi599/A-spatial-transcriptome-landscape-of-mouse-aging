@@ -16,7 +16,7 @@ GetAllCoordinates <- function(.data) {
                     cols = c("row", "col"),
                     scale = NULL
                 ) %>%
-            rownames_to_column(var = "cellid")
+            as_tibble(rownames = "cellid")
         })
 }
 
@@ -89,8 +89,6 @@ single_SLIC <- function(df, ..., window = 20, min_spot = max(window^2 * 0.1, 5),
             dist = Inf
         )
 
-    # print(nrow(df) / (window * window))
-
     res <- Inf
     step <- 1
     while(res > 1) {
@@ -120,10 +118,7 @@ single_SLIC <- function(df, ..., window = 20, min_spot = max(window^2 * 0.1, 5),
             arrange(label)
 
         res <- as.matrix(center_df %>% select(-label)) - as.matrix(center_df_new %>% select(-label))
-
         res <- colSums(res)
-        # print(res)
-        # res <- sum(abs(res[c("col", "row")]))
         res <- sum(abs(res))
         print(str_c("Step: ", step, " Segment num: ", nrow(center_df_new), " NA spot: ", sum(is.na(df$label)), " Diff: ", res))
 
@@ -146,11 +141,11 @@ single_SLIC <- function(df, ..., window = 20, min_spot = max(window^2 * 0.1, 5),
             ...)
 }
 
-STSLIC <- function(.data, nPC = 1:15, window = 20, m = 3, min_spot = max(window^2 * 0.1, 5)) {
+st_SLIC <- function(.data, nPC = 1:15, window = 20, m = 3, min_spot = max(window^2 * 0.1, 5)) {
     message("run SLIC")
 
     .data@meta.data %>%
-        rownames_to_column(var = "cellid") %>%
+        as_tibble(rownames = "cellid") %>%
         # Get Coordinates
         left_join(
             GetAllCoordinates(.data)
@@ -180,11 +175,11 @@ STSLIC <- function(.data, nPC = 1:15, window = 20, m = 3, min_spot = max(window^
 #
 # ################################################################
 
-ImageSpotNeighborsCount <- function(meta.data, celltype_col, neighbor_range, ...) {
+image_spot_neighbors_count <- function(meta.data, celltype_col, neighbor_range, ...) {
     .sample_coord <- meta.data %>%
         select(row,col,!!celltype_col, ...) %>%
         mutate(.celltype = as.numeric(factor(!!celltype_col)))
-    # print(head(.sample_coord))
+
         
     # build celltype matrix
     .celltype_mat <- Matrix::sparseMatrix(
@@ -206,12 +201,10 @@ ImageSpotNeighborsCount <- function(meta.data, celltype_col, neighbor_range, ...
                     ] %>%
                     as.vector()
 
-                # remove missing
                 .celltype_code <- .celltype_code[which(.celltype_code > 0)]
-                # remove self
                 .celltype_code <- .celltype_code[-match(.celltype_mat[.x,.y], .celltype_code)]
                 # encode
-                # index:种类, value:数量比例
+                # index: niche types, value: number of niche
                 table(.celltype_code)
             })
         )
@@ -223,7 +216,8 @@ ImageSpotNeighborsCount <- function(meta.data, celltype_col, neighbor_range, ...
 #
 # ################################################################
 
-SegmentEntropy <- function(.data, 
+segment_entropy <- function(
+    .data, 
     ..., 
     celltype_col = celltype, 
     neighbor_range = 1, 
@@ -250,7 +244,7 @@ SegmentEntropy <- function(.data,
         group_nest() %>%
         mutate(
             data = future_lapply(data, function(df) {
-                ImageSpotNeighborsCount(
+                image_spot_neighbors_count(
                     df,
                     celltype_col,
                     neighbor_range,
@@ -302,33 +296,33 @@ coverage_check <- function(df, select_spot_type = c(1,2,3)) {
 
 }
 
-#' tissue SLIC entropy
+#' Analysis and calculation of organizational structure entropy
+#' 
+#' @param .data seurat obj
+#' @param celltype_col column in meta.data, use for classifying spots
+#' @param ...  columns in meta.data, and will be reserve in result
+#' @param neighbor_range neighborhood range
+#' @param nPC PC use for calculating expression distance
+#' @param window superpixels' initial size
+#' @param m weigh the relative importance of gene expression similarity and spatial proximity
+#' @param min_spot min spot number in initial superpixel
+#' @param n_work number of threads
+#' 
+#' @return list(centers, entropy, nPC, window, m, min_spot)
+#' centers: tibble obj. superpixels' information for each spot.
+#' entropy: tibble obj. entropy for each superpixel.
 #'
-#' @description 使用SLIC分割样本，根据spot分布，度量切片组织结构的混乱程度
-#' 
-#' @param .data seurat 对象
-#' @param celltype_col meta.data中细胞类别列列名 默认celltype
-#' @param ...  meta.data中细胞类别列列名
-#' @param neighbor_range spot邻域范围 默认 1
-#' 
-#' @param nPC 使用的PC 默认 PC1~15
-#' @param window 超像素尺寸 
-#' @param m 空间距离调节因子
-#' @param min_spot 初始超像素最少spot数
-#' 
-#' @param n_work 线程数
-#'
-TissueSLICEntropy <- function(.data,
+tissue_SLIC_entropy <- function(
+    .data,
     ..., 
-    celltype_col = celltype,
+    celltype_col = seurat_clusters,
     neighbor_range = 1,
-
     nPC = 1:15,
     window = 20,
     m = 3,
     min_spot = window^2 * 0.1,
-
-    n_work = 3) {
+    n_work = 3
+) {
 
     library(future)
     library(future.apply)
@@ -339,13 +333,13 @@ TissueSLICEntropy <- function(.data,
 
     # SLIC and Get Coordinates
     .data@meta.data <- .data@meta.data %>%
-        rownames_to_column(var = "cellid") %>%
+        as_tibble(rownames = "cellid") %>%
         left_join(
-            STSLIC(.data, nPC = nPC, window = window, m = m, min_spot = min_spot)
+            st_SLIC(.data, nPC = nPC, window = window, m = m, min_spot = min_spot)
         ) %>%
         column_to_rownames("cellid")
 
-    res <- SegmentEntropy(.data,
+    res <- segment_entropy(.data,
         celltype_col = !!enquo(celltype_col),
         neighbor_range = neighbor_range,
         roi_col = label,
@@ -371,7 +365,7 @@ TissueSLICEntropy <- function(.data,
 
     list(
         "centers" = .data@meta.data %>%
-            rownames_to_column(var = "cellid") %>%
+            as_tibble(rownames = "cellid") %>%
             select(orig.ident, ..., !!enquo(celltype_col), cellid, col, row, label, center_col, center_row, spot_num) %>%
             distinct(),
         "entropy" = res,

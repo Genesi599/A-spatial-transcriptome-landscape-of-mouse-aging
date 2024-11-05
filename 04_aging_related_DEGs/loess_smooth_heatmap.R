@@ -5,7 +5,8 @@ get_log2cpm_mat <- function(.data,
     gene_list = NULL,
     sample_number = 200,
     assay = "RNA",
-    replace = FALSE) {
+    replace = FALSE
+) {
     group_vars = enquos(..., .named = TRUE)
 
     time_series <- enquo(time_series)

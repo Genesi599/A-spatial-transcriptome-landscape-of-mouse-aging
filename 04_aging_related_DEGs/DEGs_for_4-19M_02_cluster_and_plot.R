@@ -43,7 +43,7 @@ hm_draw <- function(mat_draw, prefix, num_clusters, plot_height, plot_width){
         cutree_rows = num_clusters,
         annotation_colors = list(
             age = grad_cols
-            )
+        )
     )
 
     gene_list <- data.frame(cluster = factor(cutree(p$tree_row, num_clusters)))
@@ -65,7 +65,7 @@ hm_draw <- function(mat_draw, prefix, num_clusters, plot_height, plot_width){
         cutree_rows = num_clusters,
         annotation_colors = list(
             age = grad_cols
-            )
+        )
     )
     ggsave(paste0(prefix, '_cluster', num_clusters, '.pdf'), plot = p, width = plot_width, height = plot_height)
     ggsave(paste0(prefix, '_cluster', num_clusters, '.png'), plot = p, width = plot_width, height = plot_height)
@@ -100,15 +100,15 @@ line_plot_df2 <- all_mat %>%
 #
 p <- line_plot_df2 %>%
     ggplot(aes(x = cellid, y = value)) +
-    geom_smooth(aes(group=  gene), se=F, color='grey85') +
-    geom_smooth(aes(group=smooth), colour = "#D7281B") +
+    geom_smooth(aes(group = gene), se = F, color = 'grey85') +
+    geom_smooth(aes(group = smooth), colour = "#D7281B") +
     theme(
-        panel.grid = element_blank(), 
-        panel.background = element_rect(color='black', fill='white'),
-        axis.line = element_blank(), 
-        axis.ticks = element_blank(), 
+        panel.grid = element_blank(),
+        panel.background = element_rect(color = 'black', fill = 'white'),
+        axis.line = element_blank(),
+        axis.ticks = element_blank(),
         axis.text = element_blank()) +
-    facet_wrap(~cluster, ncol=2, scale='free')
+    facet_wrap(~cluster, ncol = 2, scale = 'free')
 
 ggsave(str_c(tissue, '_age_DEG_celltype_smooth.pdf'), height = 8, width = 4)
 ggsave(str_c(tissue, '_age_DEG_celltype_smooth.png'), height = 8, width = 4)

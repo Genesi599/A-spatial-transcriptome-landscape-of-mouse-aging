@@ -14,6 +14,16 @@ GetAllCoordinates <- function(.data) {
         })
 }
 
+#' Spatially connected domain identification analysis
+#' 
+#' @param .data seurat obj
+#' @param spottype filter condition, eg: celltype == "SS macro"
+#' @param n_work number of threads
+#' 
+#' @return seurat obj, add result in metadata. <roi_id, roi_size>
+#' roi_id: connected range id,
+#' roi_size: size of connected range
+#' 
 connected_domain_marker <- function(
     .data, 
     spottype,

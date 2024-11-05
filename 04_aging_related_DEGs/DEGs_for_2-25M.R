@@ -24,7 +24,7 @@ O_Y_DEG <- function(data, n_work = 14) {
             t_df <- tryCatch({
                 data %>%
                     subset(celltype == ct) %>%
-                    FindMarkers(ident.1 = "Old", group.by = "age", test.use = "wilcox") %>%
+                    FindMarkers(ident.1 = "25M", group.by = "age", test.use = "wilcox") %>%
                     as_tibble(rownames = "gene") %>%
                     mutate(celltype = ct) %>%
                     return()

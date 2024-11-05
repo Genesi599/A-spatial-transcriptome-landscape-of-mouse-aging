@@ -14,12 +14,6 @@ GetAllCoordinates <- function(.data) {
         })
 }
 
-# ################################################################
-#
-# range marker
-#
-# ################################################################
-
 single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check = FALSE) {
 
     if (length(intra_df) != 0) {
@@ -52,22 +46,28 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check 
         select(-c(row, col))
 }
 
-#' niche marker
+#' SSS niche analysis and gradient definition
 #' 
-#' @description 标记niche周围的梯度
+#' @import proxy
 #' 
-#' @import Seurat
-#' @import tidyverse
-#' @import future
-#' @import future.apply
+#' @param .data seurat obj
+#' @param marker expressions use for filter to select SSS
+#' @param spot_type result column name in meta.data
+#' @param dist_method the distance measure to be used 
+#' @param FUN distance to gradient function: NA, ceiling...
+#' @param n_work number of threads
 #' 
-#' @param marker
-#' @param spot_type 
-#' @param dist_method 距离计量方法, 默认 "Euclidean"。list of all available measures can be obtained using pr_DB 
-#' @param FUN 距离调整函数(NULL, ceiling) 默认 NA
-#' @param n_work 线程数
+#' @return seurat obj, add result in metadata. 
 #' 
-NicheMarker <- function(.data, marker, spot_type, slide = orig.ident, dist_method = "Euclidean", FUN = NA, n_work = 3) {
+niche_marker <- function(
+    .data, 
+    marker, 
+    spot_type, 
+    slide = orig.ident, 
+    dist_method = "Euclidean", 
+    FUN = NA, 
+    n_work = 3
+) {
     marker = enquo(marker)
     spot_type = enquo(spot_type)
     slide = enquo(slide)
