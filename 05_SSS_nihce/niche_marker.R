@@ -1,3 +1,4 @@
+# niche_marker.R
 
 GetAllCoordinates <- function(.data) {
     .data@images %>%

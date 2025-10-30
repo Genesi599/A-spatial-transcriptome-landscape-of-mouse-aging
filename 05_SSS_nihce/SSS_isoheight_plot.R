@@ -1,3 +1,4 @@
+# SSS_isoheight_plot.R
 
 GetAllCoordinates <- function(.data) {
     .data@images %>%

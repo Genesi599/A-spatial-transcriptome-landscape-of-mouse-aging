@@ -1,3 +1,4 @@
+# niche_grade_entropy.R
 
 GetAllCoordinates <- function(.data) {
     .data@images %>%
