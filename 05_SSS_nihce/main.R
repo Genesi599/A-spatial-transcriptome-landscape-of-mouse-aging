@@ -468,6 +468,173 @@ if (DEBUG_MODE) {
 }
 
 # -----------------------------
+# 9.5. SSS Niche 热图可视化
+# -----------------------------
+cat("\n🎨 绘制 SSS Niche 热图...\n")
+
+# ✅ 根据调试模式决定绘制的样本
+if (DEBUG_MODE) {
+  samples_to_plot_sss <- head(samples_to_plot, DEBUG_SAMPLE_LIMIT)
+  cat(sprintf("🔧 调试模式：只绘制前 %d 个样本的 SSS 热图\n", length(samples_to_plot_sss)))
+} else {
+  samples_to_plot_sss <- samples_to_plot
+  cat(sprintf("🚀 生产模式：绘制所有 %d 个样本的 SSS 热图\n", length(samples_to_plot_sss)))
+}
+
+# 为每个样本单独绘图
+for (i in seq_along(samples_to_plot_sss)) {
+  sample_id <- samples_to_plot_sss[i]
+  cat(sprintf("\n📊 [%d/%d] 正在绘制: %s\n", i, length(samples_to_plot_sss), sample_id))
+  
+  # ✅ 生成缓存键
+  safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+  sss_cache_key <- generate_cache_key(
+    sample_id = sample_id,
+    threshold = THRESHOLD_QUANTILE,
+    genes = genes_in_data,
+    method = "sss_niche_plot"
+  )
+  sss_cache_file <- file.path(cache_dir, sprintf("sss_niche_%s_%s.rds", safe_name, sss_cache_key))
+  output_file <- file.path(output_dir, sprintf("ClockGene_SSS_niche_%s.pdf", safe_name))
+  
+  # ✅ 检查缓存
+  if (file.exists(sss_cache_file) && file.exists(output_file)) {
+    cat(sprintf("   ⚡ 从缓存加载: %s\n", basename(output_file)))
+    next
+  }
+  
+  # 提取单个样本数据
+  tryCatch({
+    sample_meta <- seurat_obj@meta.data %>%
+      filter(orig.ident == sample_id) %>%
+      rownames_to_column("cellid")
+    
+    # ✅ 检查是否已有坐标信息
+    if (!all(c("col", "row") %in% colnames(sample_meta))) {
+      cat("   🔄 获取空间坐标...\n")
+      sample_meta <- sample_meta %>%
+        left_join(
+          GetAllCoordinates(seurat_obj[, seurat_obj$orig.ident == sample_id]),
+          by = "cellid"
+        )
+    }
+    
+    # ✅ 检查必需列
+    required_cols <- c("col", "row", "ClockGene_High", "niche_distance")
+    missing_cols <- setdiff(required_cols, colnames(sample_meta))
+    
+    if (length(missing_cols) > 0) {
+      cat(sprintf("   ⚠️ 警告：缺少列 %s，跳过该样本\n", paste(missing_cols, collapse = ", ")))
+      next
+    }
+    
+    # ✅ 数据统计
+    n_high <- sum(sample_meta$ClockGene_High, na.rm = TRUE)
+    n_low <- sum(!sample_meta$ClockGene_High, na.rm = TRUE)
+    cat(sprintf("   📊 SSS: %d spots (%.1f%%) | Others: %d spots (%.1f%%)\n", 
+                n_high, 100 * n_high / nrow(sample_meta),
+                n_low, 100 * n_low / nrow(sample_meta)))
+    
+    # 创建基础热图
+    p_sss_niche <- ggplot(sample_meta, aes(x = col, y = row)) +
+      # 1. 背景热图（显示 niche 距离）
+      geom_tile(
+        aes(fill = niche_distance), 
+        width = 1, 
+        height = 1
+      ) +
+      scale_fill_gradientn(
+        colours = c("#2166ac", "#4393c3", "#92c5de", "#d1e5f0",
+                    "#fddbc7", "#f4a582", "#d6604d", "#b2182b"),
+        name = "Niche Distance",
+        na.value = "white",
+        limits = c(
+          min(sample_meta$niche_distance, na.rm = TRUE),
+          max(sample_meta$niche_distance, na.rm = TRUE)
+        )
+      ) +
+      
+      # 2. 叠加背景点 (Others)
+      geom_point(
+        data = sample_meta %>% filter(ClockGene_High == FALSE),
+        aes(x = col, y = row),
+        color = "gray70",
+        size = 0.3,
+        alpha = 0.5
+      ) +
+      
+      # 3. 高亮点 (SSS - 高表达)
+      geom_point(
+        data = sample_meta %>% filter(ClockGene_High == TRUE),
+        aes(x = col, y = row),
+        color = "black",
+        size = 0.8,
+        alpha = 0.8
+      ) +
+      
+      # 4. 坐标和主题
+      scale_y_reverse() +
+      coord_fixed(ratio = 1) +
+      labs(
+        title = sample_id,
+        subtitle = sprintf("SSS: %d spots (%.1f%%) | Others: %d spots (%.1f%%)",
+                          n_high, 100 * n_high / nrow(sample_meta),
+                          n_low, 100 * n_low / nrow(sample_meta))
+      ) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray40"),
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        legend.position = "right",
+        legend.title = element_text(size = 11, face = "bold"),
+        legend.text = element_text(size = 9),
+        plot.margin = margin(10, 10, 10, 10)
+      )
+    
+    # ✅ 保存图片
+    ggsave(
+      output_file, 
+      plot = p_sss_niche, 
+      width = 10, 
+      height = 10, 
+      dpi = 300
+    )
+    
+    # ✅ 保存缓存（记录已完成）
+    save_cache(list(completed = TRUE, timestamp = Sys.time()), sss_cache_file, "SSS 热图")
+    
+    cat(sprintf("   ✅ 已保存: %s\n", basename(output_file)))
+    
+    # ✅ 调试模式下也保存 PNG 方便预览
+    if (DEBUG_MODE) {
+      output_png <- file.path(output_dir, sprintf("ClockGene_SSS_niche_%s.png", safe_name))
+      ggsave(output_png, plot = p_sss_niche, width = 10, height = 10, dpi = 150)
+      cat(sprintf("   ✅ 已保存预览: %s\n", basename(output_png)))
+    }
+    
+  }, error = function(e) {
+    cat(sprintf("   ❌ 绘制失败: %s\n", conditionMessage(e)))
+    cat("   跳过该样本...\n")
+  })
+  
+  # ✅ 调试模式下每张图后暂停，方便检查
+  if (DEBUG_MODE && i < length(samples_to_plot_sss)) {
+    cat("   [调试] 按 Enter 继续下一张图...\n")
+    readline()
+  }
+}
+
+cat("\n✅ SSS Niche 热图绘制完成\n")
+if (DEBUG_MODE) {
+  cat(sprintf("⚠️ 调试模式：只生成了 %d 张图\n", length(samples_to_plot_sss)))
+  cat("💡 关闭调试模式以生成所有样本的图\n")
+}
+
+# -----------------------------
 # 10. 保存结果（优化版 - 不保存大对象）
 # -----------------------------
 cat("\n💾 保存结果...\n")

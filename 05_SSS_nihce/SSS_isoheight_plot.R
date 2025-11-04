@@ -1,4 +1,4 @@
-# SSS_isoheight_plot.R (修复版)
+# SSS_isoheight_plot.R (最终修复版)
 
 GetAllCoordinates <- function(.data) {
     .data@images %>%
@@ -57,13 +57,19 @@ celltype_isoheight_plot <- function(
         ) %>%
         as_tibble()
 
-    # ✅ 修复：使用更宽松的坐标范围（增加 5% 边距）
-    xy_r_max <- max(df$col, df$row)
-    xy_r_min <- min(df$col, df$row)
-    margin <- (xy_r_max - xy_r_min) * 0.05
+    # ✅ 关键修复：分别计算 col 和 row 的范围
+    col_min <- min(df$col, na.rm = TRUE)
+    col_max <- max(df$col, na.rm = TRUE)
+    row_min <- min(df$row, na.rm = TRUE)
+    row_max <- max(df$row, na.rm = TRUE)
     
-    xlim_range <- c(max(0, min(df$col) - margin), max(df$col) + margin)
-    ylim_range <- c(max(0, min(df$row) - margin), max(df$row) + margin)
+    # 计算边距（基于各自的范围）
+    col_margin <- (col_max - col_min) * 0.05
+    row_margin <- (row_max - row_min) * 0.05
+    
+    # 应用边距
+    xlim_range <- c(col_min - col_margin, col_max + col_margin)
+    ylim_range <- c(row_min - row_margin, row_max + row_margin)
 
     p <- ggplot(mapping = aes(x = col, y = row)) +
         # 背景点
@@ -77,15 +83,16 @@ celltype_isoheight_plot <- function(
         # 密度填充（等高线填充）
         stat_density_2d_filled(
             data = df %>% filter(!!density_top),
-            mapping = aes(fill = after_stat(ndensity), alpha = after_stat(ndensity)),
-            geom = "raster", contour = FALSE,
-            show.legend = TRUE  # ✅ 显示填充图例
+            mapping = aes(fill = after_stat(ndensity)),  # ✅ 移除 alpha 映射
+            geom = "raster", 
+            contour = FALSE,
+            alpha = 0.8,  # ✅ 固定透明度
+            show.legend = TRUE
         ) +
         scale_fill_gradientn(
             colours = cols_fill_isoheight,
-            name = "Density"  # ✅ 统一图例标题
+            name = "Density"
         ) +
-        # ✅ 修复：移除 alpha 的图例
         guides(alpha = "none") +
         
         ggnewscale::new_scale_fill() +
@@ -94,7 +101,7 @@ celltype_isoheight_plot <- function(
             data = df %>% filter(!!density_top),
             color = col_isoheight,
             contour_var = "ndensity",
-            show.legend = FALSE  # ✅ 关闭线条图例（避免重复）
+            show.legend = FALSE
         )
 
     # 高亮点
@@ -110,17 +117,19 @@ celltype_isoheight_plot <- function(
         NoAxes() +
         coord_fixed(
             ratio = 1, 
-            xlim = xlim_range,  # ✅ 使用动态范围
+            xlim = xlim_range,
             ylim = ylim_range,
-            expand = FALSE
+            expand = FALSE,
+            clip = "off"  # ✅ 不裁剪边界外的内容
         ) +
         theme(
             aspect.ratio = 1,
             panel.background = element_blank(),
             strip.background = element_blank(),
-            legend.position = "right",  # ✅ 图例位置
+            legend.position = "right",
             legend.title = element_text(size = 12, face = "bold"),
-            legend.text = element_text(size = 10)
+            legend.text = element_text(size = 10),
+            plot.margin = margin(5, 5, 5, 5, "pt")  # ✅ 添加画布边距
         ) +
         facet_wrap(vars(sample), nrow = nrow)
     
