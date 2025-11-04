@@ -273,148 +273,74 @@ for (i in seq_along(samples_to_plot)) {
 
 
 # -----------------------------
-# 诊断图：用数字标注 Distance 值
+# 重新诊断 ClockGene_High 的定义
 # -----------------------------
-cat("\n🔍 生成带数字标注的诊断图...\n")
+cat("\n🔍 深度诊断 ClockGene_High 定义...\n")
 
-for (i in seq_along(samples_to_plot)) {
-  sample_id <- samples_to_plot[i]
-  cat(sprintf("[%d/%d] %s\n", i, length(samples_to_plot), sample_id))
-  
-  seurat_subset <- subset(seurat_obj, subset = orig.ident == sample_id)
-  coords <- GetTissueCoordinates(seurat_subset)
-  
-  # 检测坐标列名
-  if ("x" %in% colnames(coords)) {
-    x_col <- "x"
-    y_col <- "y"
-  } else if ("imagerow" %in% colnames(coords)) {
-    x_col <- "imagerow"
-    y_col <- "imagecol"
-  } else {
-    next
-  }
-  
-  # 合并数据
-  plot_data <- seurat_subset@meta.data %>%
-    rownames_to_column("barcode") %>%
-    left_join(coords %>% rownames_to_column("barcode"), by = "barcode")
-  
-  # 随机采样（如果点太多，只显示部分）
-  if (nrow(plot_data) > 500) {
-    set.seed(42)
-    sample_idx <- sample(1:nrow(plot_data), 500)
-    plot_data_sample <- plot_data[sample_idx, ]
-    cat(sprintf("   采样 %d 个点用于标注\n", nrow(plot_data_sample)))
-  } else {
-    plot_data_sample <- plot_data
-  }
-  
-  # ============================================
-  # 左图：Score + ClockGene_High 标记
-  # ============================================
-  p_score <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
-    # 所有点
-    geom_point(aes(fill = ClockGene_Score1), 
-               shape = 21, size = 3, color = "white", stroke = 0.2) +
-    scale_fill_gradientn(
-      colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
-      name = "Score"
-    ) +
-    # 标记高表达点（黄色边框）
-    geom_point(data = plot_data %>% filter(ClockGene_High == TRUE),
-               aes(x = .data[[x_col]], y = .data[[y_col]]),
-               shape = 21, size = 3.5, fill = NA, color = "yellow", stroke = 1.5) +
-    coord_fixed(ratio = 1) +
-    ggtitle("Score (黄边=高表达点)") +
-    theme_void() +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
-      legend.position = "right"
-    )
-  
-  # ============================================
-  # 右图：Distance + 数字标注
-  # ============================================
-  p_distance <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
-    # 所有点（背景色）
-    geom_point(aes(fill = ClockGene_Distance), 
-               shape = 21, size = 3, color = "white", stroke = 0.2) +
-    scale_fill_gradientn(
-      colors = rev(c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027")),
-      name = "Distance"
-    ) +
-    # 数字标注（采样的点）
-    geom_text(data = plot_data_sample,
-              aes(label = sprintf("%.1f", ClockGene_Distance)),
-              size = 2, color = "black", fontface = "bold") +
-    # 标记高表达点（黄色边框）
-    geom_point(data = plot_data %>% filter(ClockGene_High == TRUE),
-               aes(x = .data[[x_col]], y = .data[[y_col]]),
-               shape = 21, size = 3.5, fill = NA, color = "yellow", stroke = 1.5) +
-    coord_fixed(ratio = 1) +
-    ggtitle("Distance (数字=距离值, 黄边=高表达点)") +
-    theme_void() +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
-      legend.position = "right"
-    )
-  
-  # ============================================
-  # 下图：高表达点的 Distance 详细信息
-  # ============================================
-  high_expr_data <- plot_data %>% filter(ClockGene_High == TRUE)
-  
-  p_high <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
-    # 所有点（灰色）
-    geom_point(color = "gray80", size = 2) +
-    # 高表达点（红色）
-    geom_point(data = high_expr_data,
-               aes(x = .data[[x_col]], y = .data[[y_col]]),
-               color = "red", size = 3) +
-    # 高表达点的 Distance 标注
-    geom_text(data = high_expr_data,
-              aes(label = sprintf("%.2f", ClockGene_Distance)),
-              size = 2.5, color = "red", fontface = "bold", 
-              nudge_y = 15) +  # 向上偏移避免遮挡
-    coord_fixed(ratio = 1) +
-    ggtitle(sprintf("高表达点 (n=%d) 的 Distance 值（应该≈0）", nrow(high_expr_data))) +
-    theme_void() +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 12, face = "bold")
-    )
-  
-  # ============================================
-  # 合并图
-  # ============================================
-  p_combined <- (p_score | p_distance) / p_high +
-    plot_layout(heights = c(1, 1)) +
-    plot_annotation(
-      title = sprintf("诊断图 - %s", sample_id),
-      subtitle = sprintf("高表达点 Distance 统计: 最小=%.2f, 最大=%.2f, 均值=%.2f",
-                        min(high_expr_data$ClockGene_Distance, na.rm = TRUE),
-                        max(high_expr_data$ClockGene_Distance, na.rm = TRUE),
-                        mean(high_expr_data$ClockGene_Distance, na.rm = TRUE)),
-      theme = theme(
-        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-        plot.subtitle = element_text(hjust = 0.5, size = 12, color = "red")
-      )
-    )
-  
-  # 保存
-  safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-  ggsave(file.path(dirs$spatial, sprintf("DIAGNOSTIC_labeled_%s.pdf", safe_name)),
-         plot = p_combined, width = 16, height = 16, dpi = 300)
-  
-  cat(sprintf("   ✅ 已保存诊断图: DIAGNOSTIC_labeled_%s.pdf\n", safe_name))
+# 1. 查看 ClockGene_High 的定义逻辑
+cat("\n【1】ClockGene_High 是如何定义的？\n")
+cat("请检查你的代码中是否有类似这样的定义：\n")
+cat("  seurat_obj$ClockGene_High <- seurat_obj$ClockGene_Score1 > threshold\n\n")
+
+# 2. 对于示例样本，查看 Score 和 High 的对应关系
+sample_id <- samples_to_plot[1]
+sample_data <- seurat_obj@meta.data %>%
+  filter(orig.ident == sample_id) %>%
+  select(ClockGene_Score1, ClockGene_High, ClockGene_Distance) %>%
+  arrange(desc(ClockGene_Score1))
+
+cat("\n【2】样本", sample_id, "的数据检查：\n")
+cat("\n=== Top 20 最高 Score 的点 ===\n")
+print(head(sample_data, 20))
+cat("\n期望：ClockGene_High 应该全是 TRUE\n")
+
+cat("\n=== Top 20 最低 Score 的点 ===\n")
+print(tail(sample_data, 20))
+cat("\n期望：ClockGene_High 应该全是 FALSE\n")
+
+# 3. 检查阈值
+high_score_range <- range(seurat_obj$ClockGene_Score1[seurat_obj$ClockGene_High == TRUE], 
+                          na.rm = TRUE)
+low_score_range <- range(seurat_obj$ClockGene_Score1[seurat_obj$ClockGene_High == FALSE], 
+                         na.rm = TRUE)
+
+cat("\n【3】Score 范围检查：\n")
+cat("高表达点（High=TRUE）的 Score 范围：[", 
+    round(high_score_range[1], 2), ", ", 
+    round(high_score_range[2], 2), "]\n", sep = "")
+cat("低表达点（High=FALSE）的 Score 范围：[", 
+    round(low_score_range[1], 2), ", ", 
+    round(low_score_range[2], 2), "]\n", sep = "")
+
+# 如果有重叠，说明分类有问题
+if (high_score_range[1] < low_score_range[2]) {
+  cat("\n⚠️ 警告：两个范围有重叠！\n")
+  cat("   这可能导致一些高 Score 的点被标记为 High=FALSE\n")
 }
 
-cat("\n✅ 诊断图生成完成！\n")
-cat("📌 检查要点：\n")
-cat("   1. 左上图：黄色边框的点 = 高表达点\n")
-cat("   2. 右上图：黄色边框的点的数字应该是 0 或接近 0\n")
-cat("   3. 下图：所有红点的数字应该 ≈ 0\n")
-cat("   4. 如果黄色边框的点反而有大的数字，说明逻辑确实反了\n")
+# 4. 检查 High=TRUE 的点在图中的位置
+cat("\n【4】检查黄圈点的真实 Score 值：\n")
+high_points <- seurat_obj@meta.data %>%
+  filter(orig.ident == sample_id, ClockGene_High == TRUE) %>%
+  select(ClockGene_Score1, ClockGene_Distance)
+
+cat("黄圈点的 Score 统计：\n")
+print(summary(high_points$ClockGene_Score1))
+
+cat("\n黄圈点的 Distance 统计：\n")
+print(summary(high_points$ClockGene_Distance))
+
+# 5. 相关性检查
+cat("\n【5】Score vs Distance 相关性（仅 High=TRUE 的点）：\n")
+cor_high <- cor(high_points$ClockGene_Score1, 
+                high_points$ClockGene_Distance, 
+                use = "complete.obs")
+cat("相关系数：", round(cor_high, 3), "\n")
+if (cor_high > 0) {
+  cat("⚠️ 正相关：Score 越高，Distance 反而越大！这不对！\n")
+} else {
+  cat("✅ 负相关：这是正常的\n")
+}
 
 # -----------------------------
 # 12. 绘制空间梯度图（修复版）
