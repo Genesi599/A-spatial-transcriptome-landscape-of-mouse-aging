@@ -60,7 +60,7 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check 
   res %>% select(-c(row, col))
 }
 
-# ------------------ 主函数 ------------------ #
+# ------------------ 主函数（完全修复版）------------------ #
 
 niche_marker <- function(
   .data,
@@ -89,6 +89,10 @@ niche_marker <- function(
   message(sprintf(">> 总点数: %d, 标记点数: %d (%.1f%%)",
                   n_total, n_marker, 100 * n_marker / n_total))
 
+  # ✅✅✅ 关键修复：保存原始的细胞顺序
+  original_cell_order <- colnames(.data)
+  message(sprintf(">> 保存原始细胞顺序: %d 个细胞", length(original_cell_order)))
+
   .data@meta.data <-
     .data@meta.data %>%
     rownames_to_column(var = "cellid") %>%
@@ -101,7 +105,7 @@ niche_marker <- function(
 
       # ✅ 修复：过滤时需要处理 NA 值
       intra_df <- df %>%
-        filter(!is.na(.data[[marker]]) & .data[[marker]] == TRUE) %>%  # ✅ 显式检查
+        filter(!is.na(.data[[marker]]) & .data[[marker]] == TRUE) %>%
         column_to_rownames("cellid") %>%
         select(row, col)
 
@@ -114,7 +118,32 @@ niche_marker <- function(
     bind_rows() %>%
     column_to_rownames(var = "cellid")
 
-  .data@meta.data <- .data@meta.data[colnames(.data), ]
+  # ✅✅✅ 关键修复：严格按原始顺序重新排列
+  message("\n>> 重新排序 meta.data 以匹配 Seurat object...")
+  
+  # 检查是否所有细胞都存在
+  current_cells <- rownames(.data@meta.data)
+  missing_cells <- setdiff(original_cell_order, current_cells)
+  extra_cells <- setdiff(current_cells, original_cell_order)
+  
+  if (length(missing_cells) > 0) {
+    stop(sprintf("❌ 错误：meta.data 中缺少 %d 个细胞！", length(missing_cells)))
+  }
+  
+  if (length(extra_cells) > 0) {
+    warning(sprintf("⚠️ meta.data 中有 %d 个多余细胞，将被移除", length(extra_cells)))
+    .data@meta.data <- .data@meta.data[original_cell_order, ]
+  } else {
+    # 强制按原始顺序重新排列
+    .data@meta.data <- .data@meta.data[original_cell_order, ]
+  }
+  
+  # 验证排序结果
+  if (!identical(rownames(.data@meta.data), original_cell_order)) {
+    stop("❌ 严重错误：重新排序后仍不匹配！")
+  }
+  
+  message("✅ meta.data 行顺序已修正并验证")
 
   # ✅ 最终验证
   message("\n>> Distance 计算完成！")
@@ -131,8 +160,27 @@ niche_marker <- function(
                   max(marker_dist, na.rm = TRUE),
                   mean(marker_dist, na.rm = TRUE)))
   
-  if (mean(marker_dist, na.rm = TRUE) > 0.1) {
-    warning("⚠️ 标记点的平均 Distance > 0.1，可能计算有误！")
+  # ✅✅✅ 增强验证：检查标记点 Distance = 0 的比例
+  n_marker_zero <- sum(marker_dist == 0, na.rm = TRUE)
+  n_marker_total <- length(marker_dist[!is.na(marker_dist)])
+  pct_marker_zero <- 100 * n_marker_zero / n_marker_total
+  
+  message(sprintf(">> 标记点中 Distance=0 的比例: %d/%d (%.1f%%)",
+                  n_marker_zero, n_marker_total, pct_marker_zero))
+  
+  if (pct_marker_zero < 99) {
+    warning(sprintf("⚠️ 警告：只有 %.1f%% 的标记点 Distance=0！应该接近 100%%", pct_marker_zero))
+    
+    # 找出异常的标记点
+    abnormal_marker_cells <- names(marker_dist)[marker_dist > 0]
+    if (length(abnormal_marker_cells) > 0) {
+      message(sprintf(">> 前 10 个异常标记点（Distance > 0）:"))
+      abnormal_info <- .data@meta.data[head(abnormal_marker_cells, 10), 
+                                       c(slide, marker, spot_type)]
+      print(abnormal_info)
+    }
+  } else {
+    message("✅ 验证通过：几乎所有标记点的 Distance = 0")
   }
 
   return(.data)
