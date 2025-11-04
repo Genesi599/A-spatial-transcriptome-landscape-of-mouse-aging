@@ -23,7 +23,15 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check 
       as.matrix()
 
     spot_dist <- tibble(cellid = rownames(mat))
-    spot_dist[[spot_type]] <- rowMeans(mat, na.rm = TRUE)
+    
+    # ✅ 修复：使用 rowMins 或 apply(..., min) 代替 rowMeans
+    # 方法 1: 使用 matrixStats 包（推荐，速度快）
+    if (requireNamespace("matrixStats", quietly = TRUE)) {
+      spot_dist[[spot_type]] <- matrixStats::rowMins(mat, na.rm = TRUE)
+    } else {
+    #   # 方法 2: 使用 apply（兼容性好，但较慢）
+    #   spot_dist[[spot_type]] <- apply(mat, 1, min, na.rm = TRUE)
+    }
 
     if (!is.na(FUN)) {
       spot_dist[[spot_type]] <- FUN(spot_dist[[spot_type]])
@@ -51,7 +59,7 @@ niche_marker <- function(
   FUN = NA,
   n_work = 3
 ) {
-  # 👇 关键修改：列名字符串，不再是 quosure
+  # 列名字符串
   marker <- as.character(substitute(marker))
   spot_type <- as.character(substitute(spot_type))
   slide <- as.character(substitute(slide))
