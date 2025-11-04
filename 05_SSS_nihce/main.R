@@ -47,7 +47,7 @@ source("SSS_isoheight_plot.R")
 cat("\n📄 读取基因列表...\n")
 gene_list_path <- "/data/home/quj_lab/zhangbin/result/neutrophil_aging/mouse_clock/gene_list.txt"
 
-gene_list <- read.table(gene_list_path, header = FALSE, stringsAsFactors = FALSE)$V1
+gene_list <- read.table(gene_list_path, header = TRUE, stringsAsFactors = FALSE)[[1]]
 gene_list <- trimws(gene_list)
 gene_list <- gene_list[gene_list != ""]
 cat(sprintf("✅ 共读取 %d 个基因。\n", length(gene_list)))
@@ -84,18 +84,18 @@ seurat_obj <- AddModuleScore(
   name = "ClockGene_Score"
 )
 
-# 定义阈值
+# 提前计算出阈值（数值）
 threshold_value <- quantile(seurat_obj$ClockGene_Score1, 0.7)
 cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold_value))
 
-
-# 开始 Niche 分析
+# 启动并行
 cat("\n📈 开始 Niche 分析...\n")
 plan(multisession, workers = 6)
 
+# 👉 用字面量数字代替 threshold_value 引用
 seurat_obj <- niche_marker(
   .data = seurat_obj,
-  marker = ClockGene_Score1 > threshold_value,
+  marker = ClockGene_Score1 > !!threshold_value,  # 注意 "!!"
   spot_type = ClockGene_niche,
   slide = orig.ident,
   dist_method = "Euclidean",
