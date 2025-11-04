@@ -219,83 +219,6 @@ cat(sprintf("✅ 距离范围: %.2f ~ %.2f\n",
             max(seurat_obj$ClockGene_Distance, na.rm = TRUE)))
 
 
-# =============================================================================
-# 诊断并修复 ClockGene_Distance
-# =============================================================================
-
-cat("\n" , rep("=", 80), "\n", sep = "")
-cat("🔍 诊断 ClockGene_Distance 问题\n")
-cat(rep("=", 80), "\n\n", sep = "")
-
-# 步骤1：检查当前状态
-cat("【步骤1】检查当前 Distance 分布\n")
-cat(rep("-", 60), "\n", sep = "")
-
-high_dist <- seurat_obj$ClockGene_Distance[seurat_obj$ClockGene_High == TRUE]
-low_dist <- seurat_obj$ClockGene_Distance[seurat_obj$ClockGene_High == FALSE]
-
-cat("\n高表达点（应该 Distance ≈ 0）：\n")
-cat("  数量：", length(high_dist), "\n")
-cat("  均值：", round(mean(high_dist, na.rm = TRUE), 2), "\n")
-cat("  中位数：", round(median(high_dist, na.rm = TRUE), 2), "\n")
-cat("  范围：[", round(min(high_dist, na.rm = TRUE), 2), ", ", 
-    round(max(high_dist, na.rm = TRUE), 2), "]\n", sep = "")
-
-cat("\n低表达点（应该 Distance > 0）：\n")
-cat("  数量：", length(low_dist), "\n")
-cat("  均值：", round(mean(low_dist, na.rm = TRUE), 2), "\n")
-cat("  中位数：", round(median(low_dist, na.rm = TRUE), 2), "\n")
-cat("  范围：[", round(min(low_dist, na.rm = TRUE), 2), ", ", 
-    round(max(low_dist, na.rm = TRUE), 2), "]\n", sep = "")
-
-# 步骤2：判断是否需要反转
-cat("\n【步骤2】判断逻辑\n")
-cat(rep("-", 60), "\n", sep = "")
-
-is_reversed <- mean(high_dist, na.rm = TRUE) > mean(low_dist, na.rm = TRUE)
-
-if (is_reversed) {
-  cat("❌ 检测到问题：高表达点的平均 Distance (", 
-      round(mean(high_dist, na.rm = TRUE), 2), 
-      ") > 低表达点 (", 
-      round(mean(low_dist, na.rm = TRUE), 2), ")\n", sep = "")
-  cat("   → 需要反转 Distance 值\n")
-  
-  # 步骤3：反转
-  cat("\n【步骤3】执行反转\n")
-  cat(rep("-", 60), "\n", sep = "")
-  
-  max_dist <- max(seurat_obj$ClockGene_Distance, na.rm = TRUE)
-  seurat_obj$ClockGene_Distance <- max_dist - seurat_obj$ClockGene_Distance
-  
-  cat("✅ 反转完成！使用公式：Distance_new = ", round(max_dist, 2), " - Distance_old\n", sep = "")
-  
-  # 验证
-  high_dist_new <- seurat_obj$ClockGene_Distance[seurat_obj$ClockGene_High == TRUE]
-  low_dist_new <- seurat_obj$ClockGene_Distance[seurat_obj$ClockGene_High == FALSE]
-  
-  cat("\n【验证】反转后的分布：\n")
-  cat("  高表达点平均 Distance：", round(mean(high_dist_new, na.rm = TRUE), 2), "\n")
-  cat("  低表达点平均 Distance：", round(mean(low_dist_new, na.rm = TRUE), 2), "\n")
-  
-  if (mean(high_dist_new, na.rm = TRUE) < mean(low_dist_new, na.rm = TRUE)) {
-    cat("  ✅ 修复成功！\n")
-  } else {
-    cat("  ⚠️ 仍有问题，需要进一步检查\n")
-  }
-  
-} else {
-  cat("✅ Distance 计算正确，无需反转\n")
-  cat("   高表达点平均 Distance (", 
-      round(mean(high_dist, na.rm = TRUE), 2), 
-      ") < 低表达点 (", 
-      round(mean(low_dist, na.rm = TRUE), 2), ")\n", sep = "")
-}
-
-cat("\n", rep("=", 80), "\n", sep = "")
-cat("🎯 诊断完成\n")
-cat(rep("=", 80), "\n\n", sep = "")
-
 # -----------------------------
 # 10. 绘图配置
 # -----------------------------
@@ -348,6 +271,7 @@ for (i in seq_along(samples_to_plot)) {
          plot = p_iso, width = 8, height = 8, dpi = 300)
 }
 
+
 # -----------------------------
 # 12. 绘制空间梯度图（修复版）
 # -----------------------------
@@ -364,73 +288,88 @@ for (i in seq_along(samples_to_plot)) {
   
   safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
   
-  # ✅ 提取坐标数据（放在循环内部）
+  # ✅ 获取坐标数据
   coords <- GetTissueCoordinates(seurat_subset)
-  plot_data <- seurat_subset@meta.data %>%
-    rownames_to_column("barcode") %>%
-    left_join(coords %>% rownames_to_column("barcode"), by = "barcode")
   
-  # 检查坐标列名
-  if ("x" %in% colnames(plot_data) && "y" %in% colnames(plot_data)) {
+  # 检测坐标列名
+  coord_cols <- colnames(coords)
+  if ("x" %in% coord_cols && "y" %in% coord_cols) {
     x_col <- "x"
     y_col <- "y"
-  } else if ("imagerow" %in% colnames(plot_data) && "imagecol" %in% colnames(plot_data)) {
+  } else if ("imagerow" %in% coord_cols && "imagecol" %in% coord_cols) {
     x_col <- "imagerow"
     y_col <- "imagecol"
   } else {
     cat(sprintf("   ⚠️ 警告：未找到坐标列，跳过样本 %s\n", sample_id))
+    cat("   可用列名：", paste(coord_cols, collapse = ", "), "\n")
     next
   }
   
-  # Score 图
-  p_score <- SpatialFeaturePlot(
-    seurat_subset, features = "ClockGene_Score1",
-    pt.size.factor = 1.5, alpha = c(0.1, 1)
-  ) + scale_fill_gradientn(
-    colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
-    name = "Clock Gene\nScore"
-  ) + ggtitle(sample_id) +
-    theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
+  # 合并数据
+  plot_data <- seurat_subset@meta.data %>%
+    rownames_to_column("barcode") %>%
+    left_join(coords %>% rownames_to_column("barcode"), by = "barcode")
   
-  # Distance 图（字体颜色根据背景自动调整）
-  p_niche <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
-    geom_point(aes(fill = ClockGene_Distance), 
-               shape = 21, size = 4, color = "gray30", stroke = 0.2) +
+  # ============================================
+  # 左图：Clock Gene Score（蓝→红，低→高）
+  # ============================================
+  p_score <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
+    geom_point(aes(fill = ClockGene_Score1), 
+               shape = 21, size = 2.5, color = "white", stroke = 0.1) +
     scale_fill_gradientn(
-      colors = c(
-        "#67001f", "#b2182b", "#d6604d", "#f46d43", "#fdae61",
-        "#fee090", "#e0f3f8",
-        "#abd9e9", "#74add1", "#4575b4", "#313695"
-      ),
-      name = "Distance\n(bins)"
+      colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
+      name = "Clock Gene\nScore",
+      na.value = "gray90"
     ) +
-    # ✅ 根据距离调整字体颜色
-    geom_text(
-      aes(
-        label = round(ClockGene_Distance, 0),
-        color = ifelse(ClockGene_Distance < 30, "white", "black")
-      ),
-      size = 1.8, fontface = "bold", show.legend = FALSE
-    ) +
-    scale_color_identity() +
     coord_fixed(ratio = 1) +
-    ggtitle(sample_id) +
+    ggtitle("Clock Gene Score") +
     theme_void() +
     theme(
-      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-      legend.position = "right"
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      legend.position = "right",
+      legend.title = element_text(size = 10),
+      legend.text = element_text(size = 8)
     )
   
+  # ============================================
+  # 右图：Distance（红→蓝，近→远）
+  # ============================================
+  p_distance <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
+    geom_point(aes(fill = ClockGene_Distance), 
+               shape = 21, size = 2.5, color = "white", stroke = 0.1) +
+    scale_fill_gradientn(
+      colors = rev(c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027")),
+      # ↑ 注意：使用 rev() 反转颜色，让距离小=红色，距离大=蓝色
+      name = "Distance to\nHigh Score\nRegion",
+      na.value = "gray90"
+    ) +
+    coord_fixed(ratio = 1) +
+    ggtitle("Distance to High Score Region") +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      legend.position = "right",
+      legend.title = element_text(size = 10),
+      legend.text = element_text(size = 8)
+    )
+  
+  # ============================================
   # 合并图
-  p_combined <- (p_score | p_niche) +
+  # ============================================
+  p_combined <- (p_score | p_distance) +
     plot_annotation(
       title = sprintf("Clock Gene Niche Analysis - %s", sample_id),
-      theme = theme(plot.title = element_text(hjust = 0.5, size = 18, face = "bold"))
+      theme = theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
     )
   
+  # 保存
   ggsave(file.path(dirs$spatial, sprintf("ClockGene_spatial_%s.pdf", safe_name)),
-         plot = p_combined, width = 18, height = 9, dpi = 300)
+         plot = p_combined, width = 16, height = 8, dpi = 300)
+  
+  cat(sprintf("   ✅ 已保存: ClockGene_spatial_%s.pdf\n", safe_name))
 }
+cat("\n✅ 所有空间图绘制完成！\n")
+
 
 # -----------------------------
 # 13. 绘制 SSS Niche 热图
