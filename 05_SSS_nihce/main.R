@@ -431,7 +431,7 @@ for (i in seq_along(samples_to_plot)) {
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
-  # 绘制 Distance 图
+  # ✅ 修复 Distance 图配色
   cat("   🔄 绘制 Distance 图...\n")
   p_niche <- SpatialFeaturePlot(
     seurat_subset,
@@ -439,9 +439,12 @@ for (i in seq_along(samples_to_plot)) {
     pt.size.factor = 1.5,
     alpha = c(0.1, 1)
   ) + scale_fill_gradientn(
-    colors = rev(c("#67001f", "#b2182b", "#d6604d", "#f4a582",
-                   "#fddbc7", "#f7f7f7", "#d1e5f0", "#92c5de")),
-    name = "Distance to\nHigh Score Region"
+    # ✅ 修复：移除 rev()，让小值（近）= 红色，大值（远）= 蓝色
+    colors = c("#67001f", "#b2182b", "#d6604d", "#f4a582",
+               "#fddbc7", "#f7f7f7", "#d1e5f0", "#92c5de", "#4393c3", "#2166ac"),
+    name = "Distance to\nHigh Score Region",
+    # ✅ 添加清晰的图例标签
+    labels = function(x) sprintf("%.0f", x)
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
@@ -452,7 +455,7 @@ for (i in seq_along(samples_to_plot)) {
       theme = theme(plot.title = element_text(hjust = 0.5, size = 18, face = "bold"))
     )
   
-  # ✅ 保存到各自的子文件夹
+  # 保存到各自的子文件夹
   ggsave(
     file.path(output_subdirs$spatial, sprintf("ClockGene_spatial_%s.pdf", safe_name)),
     plot = p_combined,
@@ -502,7 +505,7 @@ for (i in seq_along(samples_to_plot_sss)) {
   
   safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
   
-  # ✅ 输出到 sss_niche_plots 子文件夹
+  # 输出到 sss_niche_plots 子文件夹
   output_file <- file.path(output_subdirs$sss_niche, 
                            sprintf("ClockGene_SSS_niche_%s.pdf", safe_name))
   
@@ -536,7 +539,7 @@ for (i in seq_along(samples_to_plot_sss)) {
                 n_high, 100 * n_high / nrow(sample_meta),
                 n_low, 100 * n_low / nrow(sample_meta)))
     
-    # 绘制 SSS 热图
+    # ✅ 绘制 SSS 热图（修复配色）
     cat("   🔄 绘制 SSS 热图...\n")
     p_sss_niche <- ggplot(sample_meta, aes(x = col, y = row)) +
       # 1. 背景热图（显示 niche 距离）
@@ -545,14 +548,25 @@ for (i in seq_along(samples_to_plot_sss)) {
         width = 1, 
         height = 1
       ) +
+      # ✅ 修复配色：距离近（小值）= 红色，距离远（大值）= 蓝色
       scale_fill_gradientn(
-        colours = c("#2166ac", "#4393c3", "#92c5de", "#d1e5f0",
-                    "#fddbc7", "#f4a582", "#d6604d", "#b2182b"),
-        name = "Niche Distance",
-        na.value = "white"
+        colours = c(
+          "#67001f", "#b2182b", "#d6604d", "#f4a582",  # 红色系（近）
+          "#fddbc7", "#f7f7f7",                        # 白色过渡
+          "#d1e5f0", "#92c5de", "#4393c3", "#2166ac"   # 蓝色系（远）
+        ),
+        name = "Distance\n(to Niche)",
+        na.value = "white",
+        # ✅ 添加更清晰的图例
+        guide = guide_colorbar(
+          title.position = "top",
+          title.hjust = 0.5,
+          barwidth = 1.5,
+          barheight = 10
+        )
       ) +
       
-      # 2. 叠加背景点 (Others)
+      # 2. 叠加背景点 (Others - 低表达)
       geom_point(
         data = sample_meta %>% filter(ClockGene_High == FALSE),
         aes(x = col, y = row),
@@ -561,7 +575,7 @@ for (i in seq_along(samples_to_plot_sss)) {
         alpha = 0.5
       ) +
       
-      # 3. 高亮点 (SSS - 高表达)
+      # 3. 高亮点 (SSS - 高表达，距离应该为 0，显示为深红色)
       geom_point(
         data = sample_meta %>% filter(ClockGene_High == TRUE),
         aes(x = col, y = row),
@@ -575,9 +589,11 @@ for (i in seq_along(samples_to_plot_sss)) {
       coord_fixed(ratio = 1) +
       labs(
         title = sample_id,
-        subtitle = sprintf("SSS: %d spots (%.1f%%) | Others: %d spots (%.1f%%)",
-                          n_high, 100 * n_high / nrow(sample_meta),
-                          n_low, 100 * n_low / nrow(sample_meta))
+        subtitle = sprintf(
+          "🔴 SSS (High): %d spots (%.1f%%) | ⚪ Others: %d spots (%.1f%%)",
+          n_high, 100 * n_high / nrow(sample_meta),
+          n_low, 100 * n_low / nrow(sample_meta)
+        )
       ) +
       theme_minimal() +
       theme(
