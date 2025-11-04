@@ -45,75 +45,13 @@ source("SSS_isoheight_plot.R")
 # 3. 读取基因列表
 # -----------------------------
 cat("\n📄 读取基因列表...\n")
-gene_list_path <- "/data/home/quj_lab/zhangbin/result/neutrophil_aging/mouse_clock/gene_list.txt"
+gene_list_path <- "/dellstorage09/quj_lab/yanghang/spatial/ref/NET_gene_list_mouse.txt"
 
 gene_list <- read.table(gene_list_path, header = TRUE, stringsAsFactors = FALSE)[[1]]
 gene_list <- trimws(gene_list)
 gene_list <- gene_list[gene_list != ""]
 cat(sprintf("✅ 共读取 %d 个基因。\n", length(gene_list)))
 print(head(gene_list))
-
-# --------------------------------------------------
-# 🧬 将人类基因列表转换为小鼠同源基因
-# --------------------------------------------------
-
-cat("\n🔄 检测基因列表物种并尝试转换为小鼠同源基因...\n")
-
-# 检查并加载 babelgene（若未安装则自动安装）
-if (!requireNamespace("babelgene", quietly = TRUE)) {
-  cat("📦 正在安装 babelgene 包，请稍候...\n")
-  install.packages("babelgene", repos = "https://cloud.r-project.org")
-}
-suppressPackageStartupMessages(library(babelgene))
-
-# 清理 gene_list（去空格、统一大写）
-gene_list <- unique(toupper(trimws(gene_list)))
-cat(sprintf("📄 共读取 %d 个基因（已标准化为大写）。\n", length(gene_list)))
-
-# 判断是否主要为人类式命名
-is_human_like <- mean(grepl("^[A-Z0-9]+$", gene_list)) > 0.8
-
-if (is_human_like) {
-  cat("🔍 检测到人类基因命名格式，尝试映射到小鼠同源基因...\n")
-  
-  # 尝试转换
-  mouse_genes <- tryCatch(
-    babelgene::orthologs(gene_list, species = "Mus musculus"),
-    error = function(e) {
-      cat("⚠️ 转换过程中出错：", e$message, "\n")
-      return(NULL)
-    }
-  )
-  
-  # 如果转换成功且结果不为空
-  if (!is.null(mouse_genes) && "mouse_symbol" %in% colnames(mouse_genes)) {
-    
-    # 提取去除 NA 的小鼠基因名
-    gene_list_mouse <- unique(na.omit(mouse_genes$mouse_symbol))
-    n_found <- length(gene_list_mouse)
-    
-    cat(sprintf("✅ 成功找到 %d 个对应小鼠基因（共 %d 个输入人类基因）。\n",
-                n_found, length(gene_list)))
-    
-    if (n_found > 0) {
-      # 替换 gene_list
-      gene_list <- gene_list_mouse
-      cat("🧬 已将 gene_list 替换为小鼠同源基因名。\n")
-      
-      # 展示前 10 个转换结果
-      cat("\n📊 部分转换对照（人→鼠）:\n")
-      print(head(mouse_genes[, c("human_symbol", "mouse_symbol")], 10))
-      
-    } else {
-      cat("⚠️ 未找到任何对应的小鼠基因，请检查输入基因是否为标准人类符号（HGNC 官方）。\n")
-    }
-  } else {
-    cat("❌ 转换失败：返回结果为空。\n")
-  }
-  
-} else {
-  cat("🧬 基因列表命名不似人类风格（可能已为小鼠基因名），保持原列表不变。\n")
-}
 
 # -----------------------------
 # 4. 加载 Seurat 对象
