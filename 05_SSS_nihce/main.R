@@ -210,7 +210,7 @@ cat(sprintf("   评分范围: %.3f ~ %.3f\n",
             max(seurat_obj$ClockGene_Score1, na.rm = TRUE)))
 
 # 定义全局阈值 (Top 5%)
-threshold <- quantile(seurat_obj$ClockGene_Score1, 0.95, na.rm = TRUE)
+threshold <- quantile(seurat_obj$ClockGene_Score1, 0.9, na.rm = TRUE)
 cat(sprintf("✅ 高表达阈值: %.3f (Top 5%%)\n", threshold))
 
 # 创建辅助列
@@ -264,20 +264,42 @@ cat(sprintf("   距离范围: %.2f ~ %.2f\n",
             max(seurat_obj$ClockGene_Distance, na.rm = TRUE)))
 
 # -----------------------------
-# 8. 绘制 Isoheight 图 - 分样本保存
+# 8. 绘制 Isoheight 图 - 分样本保存（带调试模式）
 # -----------------------------
 cat("\n🎨 绘制 Isoheight 图（分样本）...\n")
+
+# ✅ 调试模式开关
+DEBUG_MODE <- TRUE  # ← 改为 FALSE 绘制所有样本
+DEBUG_SAMPLE_LIMIT <- 3  # 调试模式下只画前 N 个样本
 
 # 获取所有样本名称
 samples <- unique(seurat_obj$orig.ident)
 cat(sprintf("共有 %d 个样本\n", length(samples)))
 
+# 根据调试模式决定处理哪些样本
+if (DEBUG_MODE) {
+  samples_to_plot <- head(samples, DEBUG_SAMPLE_LIMIT)
+  cat(sprintf("🔧 调试模式：只处理前 %d 个样本\n", length(samples_to_plot)))
+  cat("📋 样本列表:", paste(samples_to_plot, collapse = ", "), "\n")
+} else {
+  samples_to_plot <- samples
+  cat("🚀 生产模式：处理所有样本\n")
+}
+
 # 为每个样本单独绘图
-for (sample_id in samples) {
-  cat(sprintf("\n📊 正在处理: %s\n", sample_id))
+for (i in seq_along(samples_to_plot)) {
+  sample_id <- samples_to_plot[i]
+  cat(sprintf("\n📊 [%d/%d] 正在处理: %s\n", i, length(samples_to_plot), sample_id))
   
   # 提取单个样本
-  seurat_subset <- subset(seurat_obj, subset = orig.ident == sample_id)
+  tryCatch({
+    seurat_subset <- subset(seurat_obj, subset = orig.ident == sample_id)
+  }, error = function(e) {
+    cat("   ⚠️ subset 失败，使用索引方法\n")
+    sample_cells <- colnames(seurat_obj)[seurat_obj$orig.ident == sample_id]
+    seurat_subset <<- seurat_obj[, sample_cells]
+  })
+  
   cat(sprintf("   Spots 数: %d\n", ncol(seurat_subset)))
   
   # 检查缓存
@@ -314,19 +336,41 @@ for (sample_id in samples) {
   cat(sprintf("✅ 已保存: %s\n", basename(output_file)))
 }
 
-cat("\n✅ 所有样本的等高线图已保存\n")
+if (DEBUG_MODE) {
+  cat(sprintf("\n⚠️ 调试模式：已完成 %d/%d 个样本\n", length(samples_to_plot), length(samples)))
+  cat("💡 关闭调试模式: 设置 DEBUG_MODE <- FALSE\n")
+} else {
+  cat("\n✅ 所有样本的等高线图已保存\n")
+}
 
 # -----------------------------
-# 9. 可视化 Niche 距离梯度 - 分样本保存
+# 9. 可视化 Niche 距离梯度 - 分样本保存（带调试模式）
 # -----------------------------
 cat("\n🔥 绘制空间梯度图（分样本）...\n")
 
+# 使用相同的调试设置
+if (DEBUG_MODE) {
+  samples_to_plot <- head(samples, DEBUG_SAMPLE_LIMIT)
+  cat(sprintf("🔧 调试模式：只处理前 %d 个样本\n", length(samples_to_plot)))
+} else {
+  samples_to_plot <- samples
+  cat("🚀 生产模式：处理所有样本\n")
+}
+
 # 为每个样本单独绘图
-for (sample_id in samples) {
-  cat(sprintf("\n📊 正在处理: %s\n", sample_id))
+for (i in seq_along(samples_to_plot)) {
+  sample_id <- samples_to_plot[i]
+  cat(sprintf("\n📊 [%d/%d] 正在处理: %s\n", i, length(samples_to_plot), sample_id))
   
   # 提取单个样本
-  seurat_subset <- subset(seurat_obj, subset = orig.ident == sample_id)
+  tryCatch({
+    seurat_subset <- subset(seurat_obj, subset = orig.ident == sample_id)
+  }, error = function(e) {
+    cat("   ⚠️ subset 失败，使用索引方法\n")
+    sample_cells <- colnames(seurat_obj)[seurat_obj$orig.ident == sample_id]
+    seurat_subset <<- seurat_obj[, sample_cells]
+  })
+  
   safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
   
   # 缓存检查 - Score 图
@@ -401,7 +445,12 @@ for (sample_id in samples) {
   cat(sprintf("✅ 已保存 3 个图: spatial/score/distance\n"))
 }
 
-cat("\n✅ 所有空间梯度图已保存\n")
+if (DEBUG_MODE) {
+  cat(sprintf("\n⚠️ 调试模式：已完成 %d/%d 个样本\n", length(samples_to_plot), length(samples)))
+  cat("💡 关闭调试模式: 设置 DEBUG_MODE <- FALSE\n")
+} else {
+  cat("\n✅ 所有空间梯度图已保存\n")
+}
 
 # -----------------------------
 # 10. 保存结果（优化版 - 不保存大对象）
