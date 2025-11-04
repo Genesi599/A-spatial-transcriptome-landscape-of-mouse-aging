@@ -134,6 +134,12 @@ seurat_path <- "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_
 
 cat("🔄 从原始路径读取（整个流程只读一次）...\n")
 seurat_obj <- readRDS(seurat_path)
+
+# ✅ 添加：更新对象到当前 Seurat 版本
+cat("🔧 更新 Seurat 对象版本...\n")
+seurat_obj <- UpdateSeuratObject(seurat_obj)
+cat("✅ 对象更新完成\n")
+
 cat(sprintf("✅ Spots: %d, Genes: %d\n", ncol(seurat_obj), nrow(seurat_obj)))
 
 # 基本信息
