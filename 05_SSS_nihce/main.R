@@ -53,6 +53,43 @@ gene_list <- gene_list[gene_list != ""]
 cat(sprintf("✅ 共读取 %d 个基因。\n", length(gene_list)))
 print(head(gene_list))
 
+# --------------------------------------------------
+# 🧬 将人类基因列表转换为小鼠同源基因
+# --------------------------------------------------
+
+cat("\n🔄 检测基因列表物种并尝试转换为小鼠同源基因...\n")
+
+# 检查是否安装 babelgene（如未安装自动安装）
+if (!requireNamespace("babelgene", quietly = TRUE)) {
+  install.packages("babelgene")
+}
+
+library(babelgene)
+
+# 检查 gene_list 是否含有典型的人类命名模式（如大写基因）
+if (mean(grepl("^[A-Z0-9]+$", gene_list)) > 0.8) {
+  cat("🔍 检测到人类基因命名格式（大写）。开始转换为小鼠基因...\n")
+  
+  # 执行转换
+  mouse_genes <- babelgene::orthologs(gene_list, species = "mouse")
+  
+  # 查看部分结果
+  cat("📄 转换后的部分结果（人→鼠）:\n")
+  print(head(mouse_genes, 10))
+  
+  # 提取小鼠基因名并去除 NA
+  gene_list_mouse <- unique(na.omit(mouse_genes$mouse_symbol))
+  cat(sprintf("✅ 成功找到 %d 个对应小鼠基因（共 %d 个输入人类基因）。\n",
+              length(gene_list_mouse), length(gene_list)))
+  
+  # 用小鼠基因列表替换原 gene_list
+  gene_list <- gene_list_mouse
+  cat("✅ 已将 gene_list 替换为小鼠同源基因名。\n\n")
+  
+} else {
+  cat("🧬 未检测到明显的人类命名格式，保持原 gene_list 不变。\n\n")
+}
+
 # -----------------------------
 # 4. 加载 Seurat 对象
 # -----------------------------
