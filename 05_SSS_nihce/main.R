@@ -218,6 +218,84 @@ cat(sprintf("✅ 距离范围: %.2f ~ %.2f\n",
             min(seurat_obj$ClockGene_Distance, na.rm = TRUE),
             max(seurat_obj$ClockGene_Distance, na.rm = TRUE)))
 
+
+# =============================================================================
+# 诊断并修复 ClockGene_Distance
+# =============================================================================
+
+cat("\n" , rep("=", 80), "\n", sep = "")
+cat("🔍 诊断 ClockGene_Distance 问题\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
+# 步骤1：检查当前状态
+cat("【步骤1】检查当前 Distance 分布\n")
+cat(rep("-", 60), "\n", sep = "")
+
+high_dist <- seurat_obj$ClockGene_Distance[seurat_obj$ClockGene_High == TRUE]
+low_dist <- seurat_obj$ClockGene_Distance[seurat_obj$ClockGene_High == FALSE]
+
+cat("\n高表达点（应该 Distance ≈ 0）：\n")
+cat("  数量：", length(high_dist), "\n")
+cat("  均值：", round(mean(high_dist, na.rm = TRUE), 2), "\n")
+cat("  中位数：", round(median(high_dist, na.rm = TRUE), 2), "\n")
+cat("  范围：[", round(min(high_dist, na.rm = TRUE), 2), ", ", 
+    round(max(high_dist, na.rm = TRUE), 2), "]\n", sep = "")
+
+cat("\n低表达点（应该 Distance > 0）：\n")
+cat("  数量：", length(low_dist), "\n")
+cat("  均值：", round(mean(low_dist, na.rm = TRUE), 2), "\n")
+cat("  中位数：", round(median(low_dist, na.rm = TRUE), 2), "\n")
+cat("  范围：[", round(min(low_dist, na.rm = TRUE), 2), ", ", 
+    round(max(low_dist, na.rm = TRUE), 2), "]\n", sep = "")
+
+# 步骤2：判断是否需要反转
+cat("\n【步骤2】判断逻辑\n")
+cat(rep("-", 60), "\n", sep = "")
+
+is_reversed <- mean(high_dist, na.rm = TRUE) > mean(low_dist, na.rm = TRUE)
+
+if (is_reversed) {
+  cat("❌ 检测到问题：高表达点的平均 Distance (", 
+      round(mean(high_dist, na.rm = TRUE), 2), 
+      ") > 低表达点 (", 
+      round(mean(low_dist, na.rm = TRUE), 2), ")\n", sep = "")
+  cat("   → 需要反转 Distance 值\n")
+  
+  # 步骤3：反转
+  cat("\n【步骤3】执行反转\n")
+  cat(rep("-", 60), "\n", sep = "")
+  
+  max_dist <- max(seurat_obj$ClockGene_Distance, na.rm = TRUE)
+  seurat_obj$ClockGene_Distance <- max_dist - seurat_obj$ClockGene_Distance
+  
+  cat("✅ 反转完成！使用公式：Distance_new = ", round(max_dist, 2), " - Distance_old\n", sep = "")
+  
+  # 验证
+  high_dist_new <- seurat_obj$ClockGene_Distance[seurat_obj$ClockGene_High == TRUE]
+  low_dist_new <- seurat_obj$ClockGene_Distance[seurat_obj$ClockGene_High == FALSE]
+  
+  cat("\n【验证】反转后的分布：\n")
+  cat("  高表达点平均 Distance：", round(mean(high_dist_new, na.rm = TRUE), 2), "\n")
+  cat("  低表达点平均 Distance：", round(mean(low_dist_new, na.rm = TRUE), 2), "\n")
+  
+  if (mean(high_dist_new, na.rm = TRUE) < mean(low_dist_new, na.rm = TRUE)) {
+    cat("  ✅ 修复成功！\n")
+  } else {
+    cat("  ⚠️ 仍有问题，需要进一步检查\n")
+  }
+  
+} else {
+  cat("✅ Distance 计算正确，无需反转\n")
+  cat("   高表达点平均 Distance (", 
+      round(mean(high_dist, na.rm = TRUE), 2), 
+      ") < 低表达点 (", 
+      round(mean(low_dist, na.rm = TRUE), 2), ")\n", sep = "")
+}
+
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("🎯 诊断完成\n")
+cat(rep("=", 80), "\n\n", sep = "")
+
 # -----------------------------
 # 10. 绘图配置
 # -----------------------------
