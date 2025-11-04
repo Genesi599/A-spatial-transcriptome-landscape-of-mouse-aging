@@ -9,7 +9,7 @@
 # 0. 环境设置
 # -----------------------------
 # 设置当前工作目录为脚本所在路径
-setwd("/dellstorage09/quj_lab/yanghang/out_file/05_SSS_nihce")
+setwd("/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce")
 
 output_dir <- "/dellstorage09/quj_lab/yanghang/out_file"
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
