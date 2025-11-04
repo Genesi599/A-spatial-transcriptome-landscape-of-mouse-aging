@@ -137,33 +137,37 @@ if (length(genes_missing) > 0) {
 # -----------------------------
 cat("\n🧮 计算 Clock Gene Module Score...\n")
 
+# Step 1. 计算 Score
 seurat_obj <- AddModuleScore(
   seurat_obj,
   features = list(clock_gene_set = genes_in_data),
   name = "ClockGene_Score"
 )
 
+# Step 2. 阈值计算（Top 30%）
 threshold_value <- quantile(seurat_obj$ClockGene_Score1, 0.7, na.rm = TRUE)
 cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold_value))
 
-# 自动创建 ClockGene_niche 分组
+# Step 3. 创建高低群组
 seurat_obj$ClockGene_niche <- ifelse(
   seurat_obj$ClockGene_Score1 > threshold_value,
-  "ClockGene_High",
-  "ClockGene_Low"
+  "ClockGene_High", "ClockGene_Low"
 )
 cat("✅ 已自动生成字段: ClockGene_niche\n")
 print(table(seurat_obj$ClockGene_niche))
 
-# 启动并行
+# Step 4. 并行设置
 library(future)
 plan(multisession, workers = 6)
 cat("\n📈 开始 Niche 分析...\n")
 
-# 运行 Niche 分析
+# 💡 Step 5. 外部提前生成逻辑向量
+marker_vec <- seurat_obj$ClockGene_Score1 > threshold_value
+
+# Step 6. 调用
 seurat_obj <- niche_marker(
   .data = seurat_obj,
-  marker = ClockGene_Score1 > threshold_value,
+  marker = marker_vec,
   spot_type = ClockGene_niche,
   slide = orig.ident,
   dist_method = "Euclidean",
