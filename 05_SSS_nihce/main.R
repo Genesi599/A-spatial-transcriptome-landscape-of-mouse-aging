@@ -286,6 +286,24 @@ for (i in seq_along(samples_to_plot)) {
   
   safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
   
+  # ✅ 提取坐标数据（放在循环内部）
+  coords <- GetTissueCoordinates(seurat_subset)
+  plot_data <- seurat_subset@meta.data %>%
+    rownames_to_column("barcode") %>%
+    left_join(coords %>% rownames_to_column("barcode"), by = "barcode")
+  
+  # 检查坐标列名
+  if ("x" %in% colnames(plot_data) && "y" %in% colnames(plot_data)) {
+    x_col <- "x"
+    y_col <- "y"
+  } else if ("imagerow" %in% colnames(plot_data) && "imagecol" %in% colnames(plot_data)) {
+    x_col <- "imagerow"
+    y_col <- "imagecol"
+  } else {
+    cat(sprintf("   ⚠️ 警告：未找到坐标列，跳过样本 %s\n", sample_id))
+    next
+  }
+  
   # Score 图
   p_score <- SpatialFeaturePlot(
     seurat_subset, features = "ClockGene_Score1",
@@ -296,34 +314,34 @@ for (i in seq_along(samples_to_plot)) {
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
-# Distance 图（字体颜色根据背景自动调整）
-p_niche <- ggplot(plot_data, aes(x = x, y = y)) +
-  geom_point(aes(fill = ClockGene_Distance), 
-             shape = 21, size = 4, color = "gray30", stroke = 0.2) +
-  scale_fill_gradientn(
-    colors = c(
-      "#67001f", "#b2182b", "#d6604d", "#f46d43", "#fdae61",
-      "#fee090", "#e0f3f8",
-      "#abd9e9", "#74add1", "#4575b4", "#313695"
-    ),
-    name = "Distance\n(bins)"
-  ) +
-  # ✅ 根据距离调整字体颜色
-  geom_text(
-    aes(
-      label = round(ClockGene_Distance, 0),
-      color = ifelse(ClockGene_Distance < 30, "white", "black")  # 近距离用白字，远距离用黑字
-    ),
-    size = 1.8, fontface = "bold", show.legend = FALSE
-  ) +
-  scale_color_identity() +  # 使用指定的颜色
-  coord_fixed(ratio = 1) +
-  ggtitle(sample_id) +
-  theme_void() +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    legend.position = "right"
-  )
+  # Distance 图（字体颜色根据背景自动调整）
+  p_niche <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
+    geom_point(aes(fill = ClockGene_Distance), 
+               shape = 21, size = 4, color = "gray30", stroke = 0.2) +
+    scale_fill_gradientn(
+      colors = c(
+        "#67001f", "#b2182b", "#d6604d", "#f46d43", "#fdae61",
+        "#fee090", "#e0f3f8",
+        "#abd9e9", "#74add1", "#4575b4", "#313695"
+      ),
+      name = "Distance\n(bins)"
+    ) +
+    # ✅ 根据距离调整字体颜色
+    geom_text(
+      aes(
+        label = round(ClockGene_Distance, 0),
+        color = ifelse(ClockGene_Distance < 30, "white", "black")
+      ),
+      size = 1.8, fontface = "bold", show.legend = FALSE
+    ) +
+    scale_color_identity() +
+    coord_fixed(ratio = 1) +
+    ggtitle(sample_id) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+      legend.position = "right"
+    )
   
   # 合并图
   p_combined <- (p_score | p_niche) +
