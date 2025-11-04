@@ -85,8 +85,9 @@ seurat_obj <- AddModuleScore(
 )
 
 # 定义阈值
-threshold <- quantile(seurat_obj$ClockGene_Score1, 0.7)
-cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold))
+threshold_value <- quantile(seurat_obj$ClockGene_Score1, 0.7)
+cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold_value))
+
 
 # 开始 Niche 分析
 cat("\n📈 开始 Niche 分析...\n")
@@ -94,7 +95,7 @@ plan(multisession, workers = 6)
 
 seurat_obj <- niche_marker(
   .data = seurat_obj,
-  marker = ClockGene_Score1 > quantile(seurat_obj$ClockGene_Score1, 0.7),
+  marker = ClockGene_Score1 > threshold_value,
   spot_type = ClockGene_niche,
   slide = orig.ident,
   dist_method = "Euclidean",
