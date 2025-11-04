@@ -62,6 +62,47 @@ seurat_obj <- readRDS(seurat_path)
 
 cat(sprintf("✅ Spots 数量: %d, 基因数量: %d\n", ncol(seurat_obj), nrow(seurat_obj)))
 
+
+# --------------------------------------------------
+# 🧬 验证 Seurat 对象基因名格式
+# --------------------------------------------------
+
+cat("\n🔍 检查 Seurat 对象中的基因名格式...\n")
+
+# 1. 查看前 10 个基因名
+gene_names_preview <- head(rownames(seurat_obj), 10)
+cat("📄 前 10 个基因名示例:\n")
+print(gene_names_preview)
+
+# 2. 统计特征
+has_ensembl <- any(grepl("^ENSG", rownames(seurat_obj)))
+has_version <- any(grepl("\\.", rownames(seurat_obj)))
+has_symbol_suffix <- any(grepl(".*[_|][A-Z]+$", rownames(seurat_obj)))
+
+cat("\n📊 命名格式检测结果:\n")
+cat(sprintf("  • 是否使用 Ensembl ID: %s\n", ifelse(has_ensembl, "✅ 是", "❌ 否")))
+cat(sprintf("  • 是否含版本号 (例如 .1/.2): %s\n", ifelse(has_version, "✅ 是", "❌ 否")))
+cat(sprintf("  • 是否为 Ensembl_ID_基因名 格式: %s\n", ifelse(has_symbol_suffix, "✅ 是", "❌ 否")))
+
+# 3. 提示与可选自动修正
+if (has_version) {
+  cat("💡 检测到基因名带版本号，例如 ENSG00000162512.1。建议运行:\n")
+  cat("   rownames(seurat_obj) <- sub('\\\\..*', '', rownames(seurat_obj))\n\n")
+}
+
+if (has_symbol_suffix) {
+  cat("💡 检测到基因名格式类似于 ENSGxxxx_ALPL，可提取基因名部分:\n")
+  cat("   rownames(seurat_obj) <- sub('.*[_|]', '', rownames(seurat_obj))\n\n")
+}
+
+if (!any(grepl("[A-Z]", gene_names_preview))) {
+  cat("💡 检测到基因名可能为小写，可统一为大写:\n")
+  cat("   rownames(seurat_obj) <- toupper(rownames(seurat_obj))\n\n")
+}
+
+cat("✅ 基因名检查完成。\n")
+
+
 # -----------------------------
 # 5. 检查基因
 # -----------------------------
