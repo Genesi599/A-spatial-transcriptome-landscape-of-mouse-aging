@@ -132,7 +132,7 @@ cat(sprintf("✅ Spots 数量: %d, 基因数量: %d\n", ncol(seurat_obj), nrow(s
 cat("\n🔍 检查 Seurat 对象中的基因名格式...\n")
 
 # 1. 查看前 10 个基因名
-gene_names_preview <- head(rownames(seurat_obj), 10)
+gene_names_preview <- head(rownames(seurat_obj), 100)
 cat("📄 前 10 个基因名示例:\n")
 print(gene_names_preview)
 
