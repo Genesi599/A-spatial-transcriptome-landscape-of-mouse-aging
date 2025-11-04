@@ -79,27 +79,6 @@ has_ensembl <- any(grepl("^ENSG", rownames(seurat_obj)))
 has_version <- any(grepl("\\.", rownames(seurat_obj)))
 has_symbol_suffix <- any(grepl(".*[_|][A-Z]+$", rownames(seurat_obj)))
 
-cat("\n📊 命名格式检测结果:\n")
-cat(sprintf("  • 是否使用 Ensembl ID: %s\n", ifelse(has_ensembl, "✅ 是", "❌ 否")))
-cat(sprintf("  • 是否含版本号 (例如 .1/.2): %s\n", ifelse(has_version, "✅ 是", "❌ 否")))
-cat(sprintf("  • 是否为 Ensembl_ID_基因名 格式: %s\n", ifelse(has_symbol_suffix, "✅ 是", "❌ 否")))
-
-# 3. 提示与可选自动修正
-if (has_version) {
-  cat("💡 检测到基因名带版本号，例如 ENSG00000162512.1。建议运行:\n")
-  cat("   rownames(seurat_obj) <- sub('\\\\..*', '', rownames(seurat_obj))\n\n")
-}
-
-if (has_symbol_suffix) {
-  cat("💡 检测到基因名格式类似于 ENSGxxxx_ALPL，可提取基因名部分:\n")
-  cat("   rownames(seurat_obj) <- sub('.*[_|]', '', rownames(seurat_obj))\n\n")
-}
-
-if (!any(grepl("[A-Z]", gene_names_preview))) {
-  cat("💡 检测到基因名可能为小写，可统一为大写:\n")
-  cat("   rownames(seurat_obj) <- toupper(rownames(seurat_obj))\n\n")
-}
-
 cat("✅ 基因名检查完成。\n")
 
 
@@ -137,18 +116,18 @@ if (length(genes_missing) > 0) {
 # -----------------------------
 cat("\n🧮 计算 Clock Gene Module Score...\n")
 
-# Step 1. 计算 Score
+# Step 1️⃣ 计算 Score
 seurat_obj <- AddModuleScore(
   seurat_obj,
   features = list(clock_gene_set = genes_in_data),
   name = "ClockGene_Score"
 )
 
-# Step 2. 阈值计算（Top 30%）
+# Step 2️⃣ 阈值计算（Top 30%）
 threshold_value <- quantile(seurat_obj$ClockGene_Score1, 0.7, na.rm = TRUE)
 cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold_value))
 
-# Step 3. 创建高低群组
+# Step 3️⃣ 创建高低群组列
 seurat_obj$ClockGene_niche <- ifelse(
   seurat_obj$ClockGene_Score1 > threshold_value,
   "ClockGene_High", "ClockGene_Low"
@@ -156,20 +135,22 @@ seurat_obj$ClockGene_niche <- ifelse(
 cat("✅ 已自动生成字段: ClockGene_niche\n")
 print(table(seurat_obj$ClockGene_niche))
 
-# Step 4. 并行设置
+# Step 4️⃣ 在 meta.data 中添加布尔列（供 niche_marker 使用）
+seurat_obj$Marker_Boolean <- seurat_obj$ClockGene_Score1 > threshold_value
+cat("✅ 已在 meta.data 中创建布尔列: Marker_Boolean\n")
+
+# Step 5️⃣ 并行设置
 library(future)
 plan(multisession, workers = 6)
 cat("\n📈 开始 Niche 分析...\n")
+cat(">> 可使用核心数: ", nbrOfWorkers(), "\n")
 
-# 💡 Step 5. 外部提前生成逻辑向量
-marker_vec <- seurat_obj$ClockGene_Score1 > threshold_value
-
-# Step 6. 调用
+# Step 6️⃣ 调用修改后的 niche_marker 函数
 seurat_obj <- niche_marker(
   .data = seurat_obj,
-  marker = marker_vec,
-  spot_type = ClockGene_niche,
-  slide = orig.ident,
+  marker = "Marker_Boolean",       # ⚠️ 注意：传入字符串列名
+  spot_type = "ClockGene_niche",   # ⚠️ 也是列名字符串
+  slide = "orig.ident",            # ⚠️ 同样列名字符串
   dist_method = "Euclidean",
   FUN = ceiling,
   n_work = 6
