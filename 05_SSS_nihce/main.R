@@ -124,19 +124,19 @@ seurat_obj <- AddModuleScore(
 )
 
 # Step 2️⃣ 阈值计算（Top 30%）
-threshold_value <- quantile(seurat_obj$ClockGene_Score1, 0.7, na.rm = TRUE)
-cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold_value))
+threshold <- quantile(seurat_obj$ClockGene_Score1, 0.7, na.rm = TRUE)
+cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold))
 
 # Step 3️⃣ 创建高低群组列
 seurat_obj$ClockGene_niche <- ifelse(
-  seurat_obj$ClockGene_Score1 > threshold_value,
+  seurat_obj$ClockGene_Score1 > threshold,
   "ClockGene_High", "ClockGene_Low"
 )
 cat("✅ 已自动生成字段: ClockGene_niche\n")
 print(table(seurat_obj$ClockGene_niche))
 
 # Step 4️⃣ 在 meta.data 中添加布尔列（供 niche_marker 使用）
-seurat_obj$Marker_Boolean <- seurat_obj$ClockGene_Score1 > threshold_value
+seurat_obj$Marker_Boolean <- seurat_obj$ClockGene_Score1 > threshold
 cat("✅ 已在 meta.data 中创建布尔列: Marker_Boolean\n")
 
 # Step 5️⃣ 并行设置
@@ -157,7 +157,6 @@ seurat_obj <- niche_marker(
 )
 
 cat("✅ Niche 分析完成。\n")
-
 # -----------------------------
 # 8. 绘制 Isoheight 等高线图
 # -----------------------------
