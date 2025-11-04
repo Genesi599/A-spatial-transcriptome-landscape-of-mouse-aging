@@ -137,67 +137,41 @@ if (length(genes_missing) > 0) {
 # -----------------------------
 cat("\n🧮 计算 Clock Gene Module Score...\n")
 
-# --- 1️⃣ 计算模块得分 ---
 seurat_obj <- AddModuleScore(
   seurat_obj,
   features = list(clock_gene_set = genes_in_data),
   name = "ClockGene_Score"
 )
 
-# --- 2️⃣ 阈值计算（Top 30%） ---
-clock_score_name <- "ClockGene_Score1"
-threshold_value <- tryCatch(
-  quantile(seurat_obj[[clock_score_name]][, 1], 0.7, na.rm = TRUE),
-  error = function(e) {
-    cat("❌ 无法计算阈值，请检查 AddModuleScore 是否成功。\n")
-    stop(e)
-  }
-)
+threshold_value <- quantile(seurat_obj$ClockGene_Score1, 0.7, na.rm = TRUE)
 cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold_value))
 
-# --- 3️⃣ 检查必要列 ---
-required_cols <- c(clock_score_name, "ClockGene_niche", "orig.ident")
-missing_cols <- setdiff(required_cols, colnames(seurat_obj@meta.data))
-if (length(missing_cols) > 0) {
-  stop(paste0("❌ 以下字段在 meta.data 中不存在: ", paste(missing_cols, collapse = ", ")))
-}
+# 自动创建 ClockGene_niche 分组
+seurat_obj$ClockGene_niche <- ifelse(
+  seurat_obj$ClockGene_Score1 > threshold_value,
+  "ClockGene_High",
+  "ClockGene_Low"
+)
+cat("✅ 已自动生成字段: ClockGene_niche\n")
+print(table(seurat_obj$ClockGene_niche))
 
-# 检查 ClockGene_niche 是否有内容
-if (length(unique(seurat_obj$ClockGene_niche)) == 0) {
-  stop("❌ 没有检测到任何有效的 ClockGene_niche 分类，请检查该列。")
-}
-
-# --- 4️⃣ 启动并行 ---
+# 启动并行
 library(future)
-cat("\n📈 开始 Niche 分析...\n")
 plan(multisession, workers = 6)
-cat(">> 可使用的CPU核心: ", nbrOfWorkers(), "\n")
+cat("\n📈 开始 Niche 分析...\n")
 
-# --- 5️⃣ 防错的 niche_marker 调用 ---
-seurat_obj <- tryCatch({
-  niche_marker(
-    .data = seurat_obj,
-    marker = !!as.name(clock_score_name) > !!threshold_value,
-    spot_type = ClockGene_niche,
-    slide = orig.ident,
-    dist_method = "Euclidean",
-    FUN = ceiling,
-    n_work = 6
-  )
-}, error = function(e) {
-  cat("\n❌ niche_marker 分析时出错:\n", e$message, "\n")
-  cat("⚠️ 常见原因: ClockGene_niche 某一类为空 / cellid 不匹配。\n")
-  return(seurat_obj)
-})
+# 运行 Niche 分析
+seurat_obj <- niche_marker(
+  .data = seurat_obj,
+  marker = ClockGene_Score1 > threshold_value,
+  spot_type = ClockGene_niche,
+  slide = orig.ident,
+  dist_method = "Euclidean",
+  FUN = ceiling,
+  n_work = 6
+)
 
-# --- 6️⃣ 结果汇总 ---
-cat("\n✅ Niche 计算完成。\n")
-if ("ClockGene_niche" %in% colnames(seurat_obj@meta.data)) {
-  cat("📊 结果预览:\n")
-  print(head(seurat_obj@meta.data$ClockGene_niche))
-} else {
-  cat("⚠️ 未检测到 ClockGene_niche 字段，可能计算未成功。\n")
-}
+cat("✅ Niche 分析完成。\n")
 
 # -----------------------------
 # 8. 绘制 Isoheight 等高线图
