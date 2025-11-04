@@ -116,43 +116,34 @@ if (length(genes_missing) > 0) {
 # -----------------------------
 cat("\n🧮 计算 Clock Gene Module Score...\n")
 
-# Step 1️⃣ 计算 Score
+# Step 1: 计算 Module Score
 seurat_obj <- AddModuleScore(
   seurat_obj,
   features = list(clock_gene_set = genes_in_data),
   name = "ClockGene_Score"
 )
 
-# Step 2️⃣ 阈值计算（Top 30%）
+# Step 2: 定义全局阈值
 threshold <- quantile(seurat_obj$ClockGene_Score1, 0.7, na.rm = TRUE)
-cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold))
+cat(sprintf("✅ 高表达阈值: %.3f (Top 30%%)\n", threshold))
 
-# Step 3️⃣ 创建高低群组列
-seurat_obj$ClockGene_niche <- ifelse(
-  seurat_obj$ClockGene_Score1 > threshold,
-  "ClockGene_High", "ClockGene_Low"
-)
-cat("✅ 已自动生成字段: ClockGene_niche\n")
-print(table(seurat_obj$ClockGene_niche))
+# Step 3: 创建辅助列
+seurat_obj$ClockGene_High <- seurat_obj$ClockGene_Score1 > threshold
+cat("✅ 高/低表达分组:\n")
+print(table(seurat_obj$ClockGene_High))
 
-# Step 4️⃣ 在 meta.data 中添加布尔列（供 niche_marker 使用）
-seurat_obj$Marker_Boolean <- seurat_obj$ClockGene_Score1 > threshold
-cat("✅ 已在 meta.data 中创建布尔列: Marker_Boolean\n")
-
-# Step 5️⃣ 并行设置
+# Step 4: Niche 分析
 library(future)
 plan(multisession, workers = 6)
 cat("\n📈 开始 Niche 分析...\n")
-cat(">> 可使用核心数: ", nbrOfWorkers(), "\n")
 
-# Step 6️⃣ 调用修改后的 niche_marker 函数
 seurat_obj <- niche_marker(
   .data = seurat_obj,
-  marker = "Marker_Boolean",       # ⚠️ 注意：传入字符串列名
-  spot_type = "ClockGene_niche",   # ⚠️ 也是列名字符串
-  slide = "orig.ident",            # ⚠️ 同样列名字符串
+  marker = ClockGene_High,
+  spot_type = ClockGene_Distance,
+  slide = orig.ident,
   dist_method = "Euclidean",
-  FUN = ceiling,
+  FUN = NA,  # 保留连续距离
   n_work = 6
 )
 
@@ -162,9 +153,9 @@ cat("✅ Niche 分析完成。\n")
 # -----------------------------
 cat("\n🎨 绘制 Isoheight 图...\n")
 
-p_iso <- celltype_isoheight_plot(
+p_iso_col <- celltype_isoheight_plot(
   .data = seurat_obj,
-  density_top = ClockGene_Score1 > threshold,
+  density_top = ClockGene_High,  # ✅ 直接使用列名
   col_bg = "gray92",
   col_top = "#d62728",
   col_isoheight = "white",
@@ -178,11 +169,15 @@ p_iso <- celltype_isoheight_plot(
   nrow = 2
 )
 
+# 保存（两种方法效果相同）
 ggsave(
   file.path(output_dir, "ClockGene_niche_isoheight.pdf"),
-  plot = p_iso,
+  plot = p_iso_col,  # 推荐使用方法 B
   width = 14, height = 10, dpi = 300
 )
+
+cat("✅ 等高线图已保存。\n")
+
 
 # -----------------------------
 # 9. 可视化 Niche 距离梯度
