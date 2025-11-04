@@ -221,7 +221,7 @@ cat(sprintf("✅ 距离范围: %.2f ~ %.2f\n",
 # -----------------------------
 # 10. 绘图配置
 # -----------------------------
-DEBUG_MODE <- TRUE  # 改为 FALSE 绘制所有样本
+DEBUG_MODE <- FALSE  # 改为 FALSE 绘制所有样本
 DEBUG_SAMPLE_LIMIT <- 3
 
 samples <- unique(seurat_obj$orig.ident)
