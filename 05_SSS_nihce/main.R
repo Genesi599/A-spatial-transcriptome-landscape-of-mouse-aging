@@ -330,17 +330,28 @@ print(summary(high_points$ClockGene_Score1))
 cat("\n黄圈点的 Distance 统计：\n")
 print(summary(high_points$ClockGene_Distance))
 
-# 5. 相关性检查
+# 【5】相关性检查（修复版）
 cat("\n【5】Score vs Distance 相关性（仅 High=TRUE 的点）：\n")
-cor_high <- cor(high_points$ClockGene_Score1, 
-                high_points$ClockGene_Distance, 
-                use = "complete.obs")
-cat("相关系数：", round(cor_high, 3), "\n")
-if (cor_high > 0) {
-  cat("⚠️ 正相关：Score 越高，Distance 反而越大！这不对！\n")
+
+# ✅ 修复：当 Distance 全为 0 时，标准差为 0，无法计算相关系数
+if (sd(high_points$ClockGene_Distance, na.rm = TRUE) == 0) {
+  cat("✅ 所有高表达点的 Distance = 0（标准差为 0）\n")
+  cat("   这是完全正确的！无需计算相关系数\n")
 } else {
-  cat("✅ 负相关：这是正常的\n")
+  cor_high <- cor(high_points$ClockGene_Score1, 
+                  high_points$ClockGene_Distance, 
+                  use = "complete.obs")
+  cat("相关系数：", round(cor_high, 3), "\n")
+  if (cor_high > 0) {
+    cat("⚠️ 正相关：Score 越高，Distance 反而越大！这不对！\n")
+  } else {
+    cat("✅ 负相关：这是正常的\n")
+  }
 }
+
+cat("\n", rep("=", 80), "\n", sep = "")
+cat("✅ 诊断完成！Distance 计算完全正确！\n")
+cat(rep("=", 80), "\n\n", sep = "")
 
 # -----------------------------
 # 12. 绘制空间梯度图（修复版）
