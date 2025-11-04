@@ -271,7 +271,7 @@ for (i in seq_along(samples_to_plot)) {
 }
 
 # -----------------------------
-# 12. 绘制空间梯度图
+# 12. 绘制空间梯度图（修复版）
 # -----------------------------
 cat("\n🔥 绘制空间梯度图...\n")
 
@@ -296,14 +296,14 @@ for (i in seq_along(samples_to_plot)) {
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
-  # Distance 图
+  # Distance 图（✅ 修复版：使用单向渐变 + 标记高表达区）
   p_niche <- SpatialFeaturePlot(
     seurat_subset, features = "ClockGene_Distance",
     pt.size.factor = 1.5, alpha = c(0.1, 1)
-  ) + scale_fill_gradientn(
-    colors = c("#67001f", "#b2182b", "#d6604d", "#f4a582",
-               "#fddbc7", "#f7f7f7", "#d1e5f0", "#92c5de", "#4393c3", "#2166ac"),
-    name = "Distance to\nHigh Score Region"
+  ) + scale_fill_gradient(
+    low = "#d73027",   # 红色 = 近（Distance=0，高表达核心）
+    high = "#313695",  # 深蓝 = 远（Distance大）
+    name = "Distance\nto High\nScore Region"
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
