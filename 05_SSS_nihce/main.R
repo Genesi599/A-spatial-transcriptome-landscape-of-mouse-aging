@@ -296,14 +296,17 @@ for (i in seq_along(samples_to_plot)) {
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
-  # Distance 图（✅ 修复版：使用单向渐变 + 标记高表达区）
+  # Distance 图（✅ 修复：移除白色，保持深红→深蓝渐变）
   p_niche <- SpatialFeaturePlot(
     seurat_subset, features = "ClockGene_Distance",
     pt.size.factor = 1.5, alpha = c(0.1, 1)
-  ) + scale_fill_gradient(
-    low = "#d73027",   # 红色 = 近（Distance=0，高表达核心）
-    high = "#313695",  # 深蓝 = 远（Distance大）
-    name = "Distance\nto High\nScore Region"
+  ) + scale_fill_gradientn(
+    colors = c(
+      "#67001f", "#b2182b", "#d6604d", "#f46d43", "#fdae61",  # 深红→橙（近）
+      "#fee090", "#e0f3f8",                                    # 黄→浅蓝（过渡）
+      "#abd9e9", "#74add1", "#4575b4", "#313695"              # 蓝→深蓝（远）
+    ),
+    name = "Distance to\nHigh Score Region"
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
