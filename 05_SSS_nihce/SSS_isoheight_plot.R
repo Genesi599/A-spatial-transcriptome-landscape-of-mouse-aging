@@ -69,7 +69,7 @@ celltype_isoheight_plot <- function(
         ggnewscale::new_scale_fill() +
         stat_density_2d_filled(
             data = df %>% filter(!!density_top),
-            mapping = aes(fill = ..ndensity.., alpha = ..ndensity.. ),
+            mapping = aes(fill = after_stat(ndensity), alpha = after_stat(ndensity)),
             geom = "raster", contour = F
         ) +
         scale_fill_gradientn(colours = cols_fill_isoheight) +
