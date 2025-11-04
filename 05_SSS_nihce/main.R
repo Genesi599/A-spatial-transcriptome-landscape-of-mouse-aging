@@ -59,11 +59,6 @@ print(head(gene_list))
 
 cat("\n🔄 检测基因列表物种并尝试转换为小鼠同源基因...\n")
 
-# 检查是否安装 babelgene（如未安装自动安装）
-if (!requireNamespace("babelgene", quietly = TRUE)) {
-  install.packages("babelgene")
-}
-
 library(babelgene)
 
 # 检查 gene_list 是否含有典型的人类命名模式（如大写基因）
