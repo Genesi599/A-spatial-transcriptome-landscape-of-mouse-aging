@@ -253,7 +253,26 @@ print(table(seurat_obj$ClockGene_High))
 
 
 # -----------------------------
-# 6.5. 诊断坐标系统
+# 6.5. 定义样本列表（在诊断前）
+# -----------------------------
+cat("\n📋 获取样本列表...\n")
+
+# ✅ 定义 samples 变量
+samples <- unique(seurat_obj$orig.ident)
+cat(sprintf("✅ 检测到 %d 个样本\n", length(samples)))
+
+# 打印样本列表
+if (length(samples) <= 10) {
+  cat("📋 样本列表:\n")
+  print(samples)
+} else {
+  cat("📋 前 10 个样本:\n")
+  print(head(samples, 10))
+  cat(sprintf("   ... 其余 %d 个未显示\n", length(samples) - 10))
+}
+
+# -----------------------------
+# 6.6. 诊断坐标系统
 # -----------------------------
 cat("\n🔍 诊断空间坐标系统...\n")
 
@@ -371,33 +390,7 @@ ggsave(
 )
 cat("✅ 诊断图已保存: diagnostic_coordinates.pdf\n")
 
-# 绘制距离分布诊断图
-p_dist_diag <- ggplot(test_meta, aes(x = col, y = row)) +
-  geom_point(aes(color = ClockGene_Distance), size = 1.5) +
-  scale_color_gradientn(
-    colors = c("#67001f", "#d73027", "#f46d43", "#fdae61", 
-               "#ffffff", "#abd9e9", "#74add1", "#4575b4"),
-    name = "Distance"
-  ) +
-  scale_y_reverse() +
-  coord_fixed(ratio = 1) +
-  labs(
-    title = "Distance Distribution Diagnostic",
-    subtitle = sprintf("Min: %.2f | Max: %.2f | Median: %.2f",
-                      min(test_meta$ClockGene_Distance, na.rm = TRUE),
-                      max(test_meta$ClockGene_Distance, na.rm = TRUE),
-                      median(test_meta$ClockGene_Distance, na.rm = TRUE))
-  ) +
-  theme_minimal()
-
-ggsave(
-  file.path(output_dir, "diagnostic_distance.pdf"),
-  plot = p_dist_diag,
-  width = 10, height = 10, dpi = 300
-)
-cat("✅ 距离分布诊断图已保存: diagnostic_distance.pdf\n")
-
-cat("\n💡 请检查生成的诊断图，然后汇报结果\n")
+cat("\n💡 请检查输出的坐标信息，然后继续...\n")
 
 # -----------------------------
 # 7. Niche 分析 - 缓存
@@ -535,7 +528,6 @@ if (DEBUG_MODE) {
   cat("\n✅ 所有样本的等高线图已保存\n")
 }
 
-
 # -----------------------------
 # 9. 可视化 Niche 距离梯度 - 分样本保存
 # -----------------------------
@@ -579,7 +571,7 @@ for (i in seq_along(samples_to_plot)) {
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
-  # ✅ 修复 Distance 图配色
+  # 绘制 Distance 图
   cat("   🔄 绘制 Distance 图...\n")
   p_niche <- SpatialFeaturePlot(
     seurat_subset,
@@ -587,11 +579,9 @@ for (i in seq_along(samples_to_plot)) {
     pt.size.factor = 1.5,
     alpha = c(0.1, 1)
   ) + scale_fill_gradientn(
-    # ✅ 修复：移除 rev()，让小值（近）= 红色，大值（远）= 蓝色
     colors = c("#67001f", "#b2182b", "#d6604d", "#f4a582",
                "#fddbc7", "#f7f7f7", "#d1e5f0", "#92c5de", "#4393c3", "#2166ac"),
     name = "Distance to\nHigh Score Region",
-    # ✅ 添加清晰的图例标签
     labels = function(x) sprintf("%.0f", x)
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
@@ -603,33 +593,21 @@ for (i in seq_along(samples_to_plot)) {
       theme = theme(plot.title = element_text(hjust = 0.5, size = 18, face = "bold"))
     )
   
-  # 保存到各自的子文件夹
+  # ✅ 只保存合并图到 spatial 文件夹
   ggsave(
     file.path(output_subdirs$spatial, sprintf("ClockGene_spatial_%s.pdf", safe_name)),
     plot = p_combined,
     width = 18, height = 9, dpi = 300
   )
   
-  ggsave(
-    file.path(output_subdirs$score, sprintf("ClockGene_score_%s.pdf", safe_name)),
-    plot = p_score,
-    width = 10, height = 9, dpi = 300
-  )
-  
-  ggsave(
-    file.path(output_subdirs$distance, sprintf("ClockGene_distance_%s.pdf", safe_name)),
-    plot = p_niche,
-    width = 10, height = 9, dpi = 300
-  )
-  
-  cat(sprintf("✅ 已保存 3 个图到: spatial/score/distance 文件夹\n"))
+  cat(sprintf("✅ 已保存合并图: ClockGene_spatial_%s.pdf\n", safe_name))
 }
 
 if (DEBUG_MODE) {
   cat(sprintf("\n⚠️ 调试模式：已完成 %d/%d 个样本\n", length(samples_to_plot), length(samples)))
   cat("💡 关闭调试模式: 设置 DEBUG_MODE <- FALSE\n")
 } else {
-  cat("\n✅ 所有空间梯度图已保存\n")
+  cat("\n✅ 所有空间梯度图已保存到 spatial 文件夹\n")
 }
 
 # -----------------------------
