@@ -25,7 +25,6 @@ dirs <- list(
   figure = figure_dir,
   isoheight = file.path(figure_dir, "isoheight"),
   spatial = file.path(figure_dir, "spatial"),
-  sss_niche = file.path(figure_dir, "sss_niche"),
   metadata = file.path(output_dir, "metadata")
 )
 
@@ -354,9 +353,9 @@ cat("✅ 诊断完成！Distance 计算完全正确！\n")
 cat(rep("=", 80), "\n\n", sep = "")
 
 # -----------------------------
-# 12. 绘制空间梯度图（修复版）
+# 12. 绘制空间梯度图（完整修复版 - 匹配 Isoheight 方向）
 # -----------------------------
-cat("\n🔥 绘制空间梯度图...\n")
+cat("\n🔥 绘制空间梯度图（匹配 Isoheight 坐标）...\n")
 
 for (i in seq_along(samples_to_plot)) {
   sample_id <- samples_to_plot[i]
@@ -369,19 +368,20 @@ for (i in seq_along(samples_to_plot)) {
   
   safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
   
-  # ✅ 获取坐标数据
-  coords <- GetTissueCoordinates(seurat_subset)
+  # ✅ 使用和 Isoheight 图完全相同的坐标获取方式
+  coords <- GetTissueCoordinates(
+    seurat_subset,
+    cols = c("row", "col"),  # ✅ 明确指定 row 和 col
+    scale = NULL
+  )
   
-  # 检测坐标列名
+  # 检查坐标列名
   coord_cols <- colnames(coords)
-  if ("x" %in% coord_cols && "y" %in% coord_cols) {
-    x_col <- "x"
-    y_col <- "y"
-  } else if ("imagerow" %in% coord_cols && "imagecol" %in% coord_cols) {
-    x_col <- "imagerow"
-    y_col <- "imagecol"
-  } else {
-    cat(sprintf("   ⚠️ 警告：未找到坐标列，跳过样本 %s\n", sample_id))
+  cat(sprintf("   坐标列: %s\n", paste(coord_cols, collapse = ", ")))
+  
+  # ✅ 确保有 row 和 col（与 Isoheight 一致）
+  if (!("row" %in% coord_cols && "col" %in% coord_cols)) {
+    cat(sprintf("   ⚠️ 警告：未找到 row/col 列，跳过样本 %s\n", sample_id))
     cat("   可用列名：", paste(coord_cols, collapse = ", "), "\n")
     next
   }
@@ -391,16 +391,37 @@ for (i in seq_along(samples_to_plot)) {
     rownames_to_column("barcode") %>%
     left_join(coords %>% rownames_to_column("barcode"), by = "barcode")
   
+  # ✅ 计算坐标范围（与 Isoheight 保持一致）
+  expand_margin <- 0.05
+  col_range <- range(plot_data$col, na.rm = TRUE)
+  row_range <- range(plot_data$row, na.rm = TRUE)
+  
+  col_expand <- diff(col_range) * expand_margin
+  row_expand <- diff(row_range) * expand_margin
+  
+  col_limits <- c(col_range[1] - col_expand, col_range[2] + col_expand)
+  row_limits <- c(row_range[1] - row_expand, row_range[2] + row_expand)
+  
   # ============================================
   # 左图：Clock Gene Score（蓝→红，低→高）
   # ============================================
-  p_score <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
+  p_score <- ggplot(plot_data, aes(x = col, y = row)) +  # ✅ 使用 col, row
     geom_point(aes(fill = ClockGene_Score1), 
                shape = 21, size = 2.5, color = "white", stroke = 0.1) +
     scale_fill_gradientn(
       colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
       name = "Clock Gene\nScore",
       na.value = "gray90"
+    ) +
+    # ✅ 设置坐标范围
+    scale_x_continuous(
+      limits = col_limits,
+      expand = expansion(mult = 0.02)
+    ) +
+    # ✅ 关键：反转 Y 轴（与 Isoheight 一致）
+    scale_y_reverse(
+      limits = rev(row_limits),
+      expand = expansion(mult = 0.02)
     ) +
     coord_fixed(ratio = 1) +
     ggtitle("Clock Gene Score") +
@@ -409,20 +430,31 @@ for (i in seq_along(samples_to_plot)) {
       plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
       legend.position = "right",
       legend.title = element_text(size = 10),
-      legend.text = element_text(size = 8)
+      legend.text = element_text(size = 8),
+      aspect.ratio = 1,
+      plot.margin = margin(5, 5, 5, 5)
     )
   
   # ============================================
   # 右图：Distance（红→蓝，近→远）
   # ============================================
-  p_distance <- ggplot(plot_data, aes(x = .data[[x_col]], y = .data[[y_col]])) +
+  p_distance <- ggplot(plot_data, aes(x = col, y = row)) +  # ✅ 使用 col, row
     geom_point(aes(fill = ClockGene_Distance), 
                shape = 21, size = 2.5, color = "white", stroke = 0.1) +
     scale_fill_gradientn(
       colors = rev(c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027")),
-      # ↑ 注意：使用 rev() 反转颜色，让距离小=红色，距离大=蓝色
       name = "Distance to\nHigh Score\nRegion",
       na.value = "gray90"
+    ) +
+    # ✅ 设置坐标范围
+    scale_x_continuous(
+      limits = col_limits,
+      expand = expansion(mult = 0.02)
+    ) +
+    # ✅ 关键：反转 Y 轴（与 Isoheight 一致）
+    scale_y_reverse(
+      limits = rev(row_limits),
+      expand = expansion(mult = 0.02)
     ) +
     coord_fixed(ratio = 1) +
     ggtitle("Distance to High Score Region") +
@@ -431,7 +463,9 @@ for (i in seq_along(samples_to_plot)) {
       plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
       legend.position = "right",
       legend.title = element_text(size = 10),
-      legend.text = element_text(size = 8)
+      legend.text = element_text(size = 8),
+      aspect.ratio = 1,
+      plot.margin = margin(5, 5, 5, 5)
     )
   
   # ============================================
@@ -449,84 +483,10 @@ for (i in seq_along(samples_to_plot)) {
   
   cat(sprintf("   ✅ 已保存: ClockGene_spatial_%s.pdf\n", safe_name))
 }
+
 cat("\n✅ 所有空间图绘制完成！\n")
+cat("   方向已与 Isoheight 图保持一致（Y 轴反转）\n")
 
-
-# -----------------------------
-# 13. 绘制 SSS Niche 热图
-# -----------------------------
-cat("\n🎨 绘制 SSS Niche 热图（平滑插值）...\n")
-
-for (i in seq_along(samples_to_plot)) {
-  sample_id <- samples_to_plot[i]
-  cat(sprintf("[%d/%d] %s\n", i, length(samples_to_plot), sample_id))
-  
-  safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-  
-  tryCatch({
-    # 提取数据
-    sample_meta <- seurat_obj@meta.data %>%
-      filter(orig.ident == sample_id) %>%
-      rownames_to_column("cellid")
-    
-    # 检查必需列
-    if (!all(c("col", "row", "ClockGene_High", "ClockGene_Distance") %in% colnames(sample_meta))) {
-      cat("   ⚠️ 缺少必需列，跳过\n")
-      next
-    }
-    
-    # 空间插值
-    col_range <- range(sample_meta$col, na.rm = TRUE)
-    row_range <- range(sample_meta$row, na.rm = TRUE)
-    
-    interp_result <- akima::interp(
-      x = sample_meta$col, y = sample_meta$row, z = sample_meta$ClockGene_Distance,
-      xo = seq(col_range[1], col_range[2], length.out = 200),
-      yo = seq(row_range[1], row_range[2], length.out = 200),
-      linear = FALSE, extrap = FALSE
-    )
-    
-    interp_df <- expand.grid(col = interp_result$x, row = interp_result$y) %>%
-      mutate(distance = as.vector(interp_result$z)) %>%
-      filter(!is.na(distance))
-    
-    # 绘图
-    n_high <- sum(sample_meta$ClockGene_High, na.rm = TRUE)
-    
-    p_sss <- ggplot() +
-      geom_raster(data = interp_df, aes(x = col, y = row, fill = distance), 
-                  interpolate = TRUE) +
-      scale_fill_gradientn(
-        colours = c("#67001f", "#b2182b", "#d6604d", "#f4a582", "#fddbc7", 
-                    "#f7f7f7", "#d1e5f0", "#92c5de", "#4393c3", "#2166ac"),
-        name = "Distance\n(bins)", na.value = "gray95",
-        guide = guide_colorbar(barwidth = 1.5, barheight = 10)
-      ) +
-      geom_point(data = sample_meta, aes(x = col, y = row), 
-                 color = "white", size = 0.8, alpha = 0.6) +
-      geom_point(data = filter(sample_meta, ClockGene_High), aes(x = col, y = row),
-                 color = "black", size = 2.5, alpha = 0.9) +
-      scale_x_continuous(expand = expansion(mult = 0.02)) +
-      scale_y_reverse(expand = expansion(mult = 0.02)) +
-      coord_fixed(ratio = 1) +
-      labs(title = sample_id,
-           subtitle = sprintf("⚫ SSS: %d spots (%.1f%%) | ⚪ All spots: %d",
-                              n_high, 100 * n_high / nrow(sample_meta), nrow(sample_meta))) +
-      theme_void() +
-      theme(
-        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
-        plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray40"),
-        legend.position = "right",
-        plot.background = element_rect(fill = "white", color = NA)
-      )
-    
-    ggsave(file.path(dirs$sss_niche, sprintf("ClockGene_SSS_niche_%s.pdf", safe_name)),
-           plot = p_sss, width = 10, height = 10, dpi = 300)
-    
-  }, error = function(e) {
-    cat(sprintf("   ❌ 绘制失败: %s\n", conditionMessage(e)))
-  })
-}
 
 # -----------------------------
 # 14. 保存结果
@@ -549,7 +509,7 @@ cat("\n📊 文件统计:\n")
 cat(sprintf("   图形文件夹: %s\n", figure_dir))
 cat(sprintf("   - Isoheight: %d 个文件\n", length(list.files(dirs$isoheight))))
 cat(sprintf("   - Spatial: %d 个文件\n", length(list.files(dirs$spatial))))
-cat(sprintf("   - SSS Niche: %d 个文件\n", length(list.files(dirs$sss_niche))))
+
 
 cat("\n✅ 全部完成！\n")
 cat(sprintf("📁 所有图形已保存到: %s\n", figure_dir))
