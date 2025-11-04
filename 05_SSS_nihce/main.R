@@ -67,10 +67,28 @@ cat(sprintf("✅ Spots 数量: %d, 基因数量: %d\n", ncol(seurat_obj), nrow(s
 # -----------------------------
 genes_in_data <- intersect(gene_list, rownames(seurat_obj))
 genes_missing <- setdiff(gene_list, rownames(seurat_obj))
-cat(sprintf("✅ 匹配上的基因数: %d\n", length(genes_in_data)))
+
+cat(sprintf("✅ 匹配上的基因数: %d / %d (%.1f%%)\n",
+            length(genes_in_data),
+            length(gene_list),
+            100 * length(genes_in_data) / length(gene_list)))
+
+if (length(genes_in_data) < length(gene_list) * 0.3) {
+  upper_match <- sum(toupper(gene_list) %in% toupper(rownames(seurat_obj)))
+  if (upper_match > length(genes_in_data)) {
+    cat("💡 提示：基因名大小写可能不一致，可尝试统一大写：\n")
+    cat("   gene_list <- toupper(gene_list)\n")
+    cat("   rownames(seurat_obj) <- toupper(rownames(seurat_obj))\n")
+  }
+}
+
 if (length(genes_missing) > 0) {
-  cat("⚠️ 以下基因不在数据中（将被忽略）:\n")
-  print(genes_missing)
+  cat("⚠️ 以下部分基因不在数据中（将被忽略）:\n")
+  print(utils::head(genes_missing, 15))
+  if (length(genes_missing) > 15)
+    cat(sprintf("... 其余 %d 个未显示\n", length(genes_missing) - 15))
+} else {
+  cat("🎉 所有基因均成功匹配！\n")
 }
 
 # -----------------------------
