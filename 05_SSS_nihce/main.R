@@ -11,14 +11,32 @@
 # -----------------------------
 setwd("/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce")
 
+# ✅ 主输出目录
 output_dir <- "/dellstorage09/quj_lab/yanghang/spatial"
-cache_dir <- "/dellstorage09/quj_lab/yanghang/spatial/cache"
-dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-dir.create(cache_dir, showWarnings = FALSE, recursive = TRUE)
+cache_dir <- file.path(output_dir, "cache")
+
+# ✅ 创建子文件夹结构
+output_subdirs <- list(
+  metadata = file.path(output_dir, "metadata"),
+  isoheight = file.path(output_dir, "isoheight_plots"),
+  spatial = file.path(output_dir, "spatial_plots"),
+  score = file.path(output_dir, "score_plots"),
+  distance = file.path(output_dir, "distance_plots"),
+  sss_niche = file.path(output_dir, "sss_niche_plots")
+)
+
+# 创建所有子目录
+lapply(c(output_dir, cache_dir, output_subdirs), function(d) {
+  dir.create(d, showWarnings = FALSE, recursive = TRUE)
+})
 
 cat("✅ 工作目录:", getwd(), "\n")
 cat("✅ 输出目录:", output_dir, "\n")
 cat("✅ 缓存目录:", cache_dir, "\n")
+cat("✅ 子文件夹:\n")
+for (name in names(output_subdirs)) {
+  cat(sprintf("   - %s: %s\n", name, basename(output_subdirs[[name]])))
+}
 
 # -----------------------------
 # 1. 加载 R 包
@@ -279,27 +297,11 @@ cat(sprintf("   距离范围: %.2f ~ %.2f\n",
             max(seurat_obj$ClockGene_Distance, na.rm = TRUE)))
 
 # -----------------------------
-# 8. 绘制 Isoheight 图 - 分样本保存（带调试模式）
+# 8. 绘制 Isoheight 图 - 分样本保存
 # -----------------------------
 cat("\n🎨 绘制 Isoheight 图（分样本）...\n")
 
-# ✅ 调试模式开关
-DEBUG_MODE <- TRUE  # ← 改为 FALSE 绘制所有样本
-DEBUG_SAMPLE_LIMIT <- 3  # 调试模式下只画前 N 个样本
-
-# 获取所有样本名称
-samples <- unique(seurat_obj$orig.ident)
-cat(sprintf("共有 %d 个样本\n", length(samples)))
-
-# 根据调试模式决定处理哪些样本
-if (DEBUG_MODE) {
-  samples_to_plot <- head(samples, DEBUG_SAMPLE_LIMIT)
-  cat(sprintf("🔧 调试模式：只处理前 %d 个样本\n", length(samples_to_plot)))
-  cat("📋 样本列表:", paste(samples_to_plot, collapse = ", "), "\n")
-} else {
-  samples_to_plot <- samples
-  cat("🚀 生产模式：处理所有样本\n")
-}
+# ... [调试模式设置保持不变] ...
 
 # 为每个样本单独绘图
 for (i in seq_along(samples_to_plot)) {
@@ -317,36 +319,28 @@ for (i in seq_along(samples_to_plot)) {
   
   cat(sprintf("   Spots 数: %d\n", ncol(seurat_subset)))
   
-  # 检查缓存
+  # 绘制等高线图
+  cat("   🔄 绘制等高线图...\n")
+  p_iso <- celltype_isoheight_plot(
+    .data = seurat_subset,
+    density_top = ClockGene_High,
+    col_bg = "gray92",
+    col_top = "#d62728",
+    col_isoheight = "white",
+    col_white_ratio = 0.25,
+    cols_fill_isoheight = c(
+      rep("white", 25),
+      colorRampPalette(brewer.pal(9, "YlOrRd")[3:9])(75)
+    ),
+    size_bg = 0.3,
+    size_top = 1.2,
+    nrow = 1
+  )
+  
+  # ✅ 保存到 isoheight_plots 子文件夹
   safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-  iso_plot_cache <- file.path(cache_dir, sprintf("isoheight_%s_%s.rds", safe_name, niche_cache_key))
-  
-  if (file.exists(iso_plot_cache)) {
-    p_iso <- load_cache(iso_plot_cache, sprintf("%s 等高线图", sample_id))
-  } else {
-    cat("   🔄 绘制等高线图...\n")
-    # 绘制等高线图
-    p_iso <- celltype_isoheight_plot(
-      .data = seurat_subset,
-      density_top = ClockGene_High,
-      col_bg = "gray92",
-      col_top = "#d62728",
-      col_isoheight = "white",
-      col_white_ratio = 0.25,
-      cols_fill_isoheight = c(
-        rep("white", 25),
-        colorRampPalette(brewer.pal(9, "YlOrRd")[3:9])(75)
-      ),
-      size_bg = 0.3,
-      size_top = 1.2,
-      nrow = 1
-    )
-    
-    save_cache(p_iso, iso_plot_cache, sprintf("%s 等高线图", sample_id))
-  }
-  
-  # 保存单独的 PDF
-  output_file <- file.path(output_dir, sprintf("ClockGene_isoheight_%s.pdf", safe_name))
+  output_file <- file.path(output_subdirs$isoheight, 
+                           sprintf("ClockGene_isoheight_%s.pdf", safe_name))
   ggsave(output_file, plot = p_iso, width = 8, height = 8, dpi = 300)
   cat(sprintf("✅ 已保存: %s\n", basename(output_file)))
 }
@@ -358,8 +352,9 @@ if (DEBUG_MODE) {
   cat("\n✅ 所有样本的等高线图已保存\n")
 }
 
+
 # -----------------------------
-# 9. 可视化 Niche 距离梯度 - 分样本保存（带调试模式）
+# 9. 可视化 Niche 距离梯度 - 分样本保存
 # -----------------------------
 cat("\n🔥 绘制空间梯度图（分样本）...\n")
 
@@ -388,48 +383,32 @@ for (i in seq_along(samples_to_plot)) {
   
   safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
   
-  # 缓存检查 - Score 图
-  score_plot_cache <- file.path(cache_dir, sprintf("plot_score_%s_%s.rds", safe_name, niche_cache_key))
+  # 绘制 Score 图
+  cat("   🔄 绘制 Score 图...\n")
+  p_score <- SpatialFeaturePlot(
+    seurat_subset,
+    features = "ClockGene_Score1",
+    pt.size.factor = 1.5,
+    alpha = c(0.1, 1)
+  ) + scale_fill_gradientn(
+    colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
+    name = "Clock Gene\nScore"
+  ) + ggtitle(sample_id) +
+    theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
-  if (file.exists(score_plot_cache)) {
-    p_score <- load_cache(score_plot_cache, sprintf("%s Score图", sample_id))
-  } else {
-    cat("   🔄 绘制 Score 图...\n")
-    p_score <- SpatialFeaturePlot(
-      seurat_subset,
-      features = "ClockGene_Score1",
-      pt.size.factor = 1.5,
-      alpha = c(0.1, 1)
-    ) + scale_fill_gradientn(
-      colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
-      name = "Clock Gene\nScore"
-    ) + ggtitle(sample_id) +
-      theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
-    
-    save_cache(p_score, score_plot_cache, sprintf("%s Score图", sample_id))
-  }
-  
-  # 缓存检查 - Distance 图
-  dist_plot_cache <- file.path(cache_dir, sprintf("plot_dist_%s_%s.rds", safe_name, niche_cache_key))
-  
-  if (file.exists(dist_plot_cache)) {
-    p_niche <- load_cache(dist_plot_cache, sprintf("%s Distance图", sample_id))
-  } else {
-    cat("   🔄 绘制 Distance 图...\n")
-    p_niche <- SpatialFeaturePlot(
-      seurat_subset,
-      features = "ClockGene_Distance",
-      pt.size.factor = 1.5,
-      alpha = c(0.1, 1)
-    ) + scale_fill_gradientn(
-      colors = rev(c("#67001f", "#b2182b", "#d6604d", "#f4a582",
-                     "#fddbc7", "#f7f7f7", "#d1e5f0", "#92c5de")),
-      name = "Distance to\nHigh Score Region"
-    ) + ggtitle(sample_id) +
-      theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
-    
-    save_cache(p_niche, dist_plot_cache, sprintf("%s Distance图", sample_id))
-  }
+  # 绘制 Distance 图
+  cat("   🔄 绘制 Distance 图...\n")
+  p_niche <- SpatialFeaturePlot(
+    seurat_subset,
+    features = "ClockGene_Distance",
+    pt.size.factor = 1.5,
+    alpha = c(0.1, 1)
+  ) + scale_fill_gradientn(
+    colors = rev(c("#67001f", "#b2182b", "#d6604d", "#f4a582",
+                   "#fddbc7", "#f7f7f7", "#d1e5f0", "#92c5de")),
+    name = "Distance to\nHigh Score Region"
+  ) + ggtitle(sample_id) +
+    theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
   # 合并图（左右对比）
   p_combined <- (p_score | p_niche) +
@@ -438,26 +417,26 @@ for (i in seq_along(samples_to_plot)) {
       theme = theme(plot.title = element_text(hjust = 0.5, size = 18, face = "bold"))
     )
   
-  # 保存所有版本
+  # ✅ 保存到各自的子文件夹
   ggsave(
-    file.path(output_dir, sprintf("ClockGene_spatial_%s.pdf", safe_name)),
+    file.path(output_subdirs$spatial, sprintf("ClockGene_spatial_%s.pdf", safe_name)),
     plot = p_combined,
     width = 18, height = 9, dpi = 300
   )
   
   ggsave(
-    file.path(output_dir, sprintf("ClockGene_score_%s.pdf", safe_name)),
+    file.path(output_subdirs$score, sprintf("ClockGene_score_%s.pdf", safe_name)),
     plot = p_score,
     width = 10, height = 9, dpi = 300
   )
   
   ggsave(
-    file.path(output_dir, sprintf("ClockGene_distance_%s.pdf", safe_name)),
+    file.path(output_subdirs$distance, sprintf("ClockGene_distance_%s.pdf", safe_name)),
     plot = p_niche,
     width = 10, height = 9, dpi = 300
   )
   
-  cat(sprintf("✅ 已保存 3 个图: spatial/score/distance\n"))
+  cat(sprintf("✅ 已保存 3 个图到: spatial/score/distance 文件夹\n"))
 }
 
 if (DEBUG_MODE) {
@@ -472,12 +451,12 @@ if (DEBUG_MODE) {
 # -----------------------------
 cat("\n🎨 绘制 SSS Niche 热图...\n")
 
-# ✅ 根据调试模式决定绘制的样本
+# 根据调试模式决定绘制的样本
 if (DEBUG_MODE) {
-  samples_to_plot_sss <- head(samples_to_plot, DEBUG_SAMPLE_LIMIT)
+  samples_to_plot_sss <- head(samples, DEBUG_SAMPLE_LIMIT)
   cat(sprintf("🔧 调试模式：只绘制前 %d 个样本的 SSS 热图\n", length(samples_to_plot_sss)))
 } else {
-  samples_to_plot_sss <- samples_to_plot
+  samples_to_plot_sss <- samples
   cat(sprintf("🚀 生产模式：绘制所有 %d 个样本的 SSS 热图\n", length(samples_to_plot_sss)))
 }
 
@@ -486,22 +465,11 @@ for (i in seq_along(samples_to_plot_sss)) {
   sample_id <- samples_to_plot_sss[i]
   cat(sprintf("\n📊 [%d/%d] 正在绘制: %s\n", i, length(samples_to_plot_sss), sample_id))
   
-  # ✅ 生成缓存键
   safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-  sss_cache_key <- generate_cache_key(
-    sample_id = sample_id,
-    threshold = THRESHOLD_QUANTILE,
-    genes = genes_in_data,
-    method = "sss_niche_plot"
-  )
-  sss_cache_file <- file.path(cache_dir, sprintf("sss_niche_%s_%s.rds", safe_name, sss_cache_key))
-  output_file <- file.path(output_dir, sprintf("ClockGene_SSS_niche_%s.pdf", safe_name))
   
-  # ✅ 检查缓存
-  if (file.exists(sss_cache_file) && file.exists(output_file)) {
-    cat(sprintf("   ⚡ 从缓存加载: %s\n", basename(output_file)))
-    next
-  }
+  # ✅ 输出到 sss_niche_plots 子文件夹
+  output_file <- file.path(output_subdirs$sss_niche, 
+                           sprintf("ClockGene_SSS_niche_%s.pdf", safe_name))
   
   # 提取单个样本数据
   tryCatch({
@@ -509,18 +477,16 @@ for (i in seq_along(samples_to_plot_sss)) {
       filter(orig.ident == sample_id) %>%
       rownames_to_column("cellid")
     
-    # ✅ 检查是否已有坐标信息
+    # 检查坐标信息
     if (!all(c("col", "row") %in% colnames(sample_meta))) {
       cat("   🔄 获取空间坐标...\n")
+      sample_coords <- GetAllCoordinates(seurat_obj[, seurat_obj$orig.ident == sample_id])
       sample_meta <- sample_meta %>%
-        left_join(
-          GetAllCoordinates(seurat_obj[, seurat_obj$orig.ident == sample_id]),
-          by = "cellid"
-        )
+        left_join(sample_coords, by = "cellid")
     }
     
-    # ✅ 检查必需列
-    required_cols <- c("col", "row", "ClockGene_High", "niche_distance")
+    # 检查必需列
+    required_cols <- c("col", "row", "ClockGene_High", "ClockGene_Distance")
     missing_cols <- setdiff(required_cols, colnames(sample_meta))
     
     if (length(missing_cols) > 0) {
@@ -528,18 +494,19 @@ for (i in seq_along(samples_to_plot_sss)) {
       next
     }
     
-    # ✅ 数据统计
+    # 数据统计
     n_high <- sum(sample_meta$ClockGene_High, na.rm = TRUE)
     n_low <- sum(!sample_meta$ClockGene_High, na.rm = TRUE)
     cat(sprintf("   📊 SSS: %d spots (%.1f%%) | Others: %d spots (%.1f%%)\n", 
                 n_high, 100 * n_high / nrow(sample_meta),
                 n_low, 100 * n_low / nrow(sample_meta)))
     
-    # 创建基础热图
+    # 绘制 SSS 热图
+    cat("   🔄 绘制 SSS 热图...\n")
     p_sss_niche <- ggplot(sample_meta, aes(x = col, y = row)) +
       # 1. 背景热图（显示 niche 距离）
       geom_tile(
-        aes(fill = niche_distance), 
+        aes(fill = ClockGene_Distance), 
         width = 1, 
         height = 1
       ) +
@@ -547,11 +514,7 @@ for (i in seq_along(samples_to_plot_sss)) {
         colours = c("#2166ac", "#4393c3", "#92c5de", "#d1e5f0",
                     "#fddbc7", "#f4a582", "#d6604d", "#b2182b"),
         name = "Niche Distance",
-        na.value = "white",
-        limits = c(
-          min(sample_meta$niche_distance, na.rm = TRUE),
-          max(sample_meta$niche_distance, na.rm = TRUE)
-        )
+        na.value = "white"
       ) +
       
       # 2. 叠加背景点 (Others)
@@ -595,7 +558,7 @@ for (i in seq_along(samples_to_plot_sss)) {
         plot.margin = margin(10, 10, 10, 10)
       )
     
-    # ✅ 保存图片
+    # 保存 PDF
     ggsave(
       output_file, 
       plot = p_sss_niche, 
@@ -604,14 +567,12 @@ for (i in seq_along(samples_to_plot_sss)) {
       dpi = 300
     )
     
-    # ✅ 保存缓存（记录已完成）
-    save_cache(list(completed = TRUE, timestamp = Sys.time()), sss_cache_file, "SSS 热图")
-    
     cat(sprintf("   ✅ 已保存: %s\n", basename(output_file)))
     
-    # ✅ 调试模式下也保存 PNG 方便预览
+    # 调试模式下保存 PNG 预览
     if (DEBUG_MODE) {
-      output_png <- file.path(output_dir, sprintf("ClockGene_SSS_niche_%s.png", safe_name))
+      output_png <- file.path(output_subdirs$sss_niche, 
+                              sprintf("ClockGene_SSS_niche_%s.png", safe_name))
       ggsave(output_png, plot = p_sss_niche, width = 10, height = 10, dpi = 150)
       cat(sprintf("   ✅ 已保存预览: %s\n", basename(output_png)))
     }
@@ -620,12 +581,6 @@ for (i in seq_along(samples_to_plot_sss)) {
     cat(sprintf("   ❌ 绘制失败: %s\n", conditionMessage(e)))
     cat("   跳过该样本...\n")
   })
-  
-  # ✅ 调试模式下每张图后暂停，方便检查
-  if (DEBUG_MODE && i < length(samples_to_plot_sss)) {
-    cat("   [调试] 按 Enter 继续下一张图...\n")
-    readline()
-  }
 }
 
 cat("\n✅ SSS Niche 热图绘制完成\n")
@@ -639,19 +594,24 @@ if (DEBUG_MODE) {
 # -----------------------------
 cat("\n💾 保存结果...\n")
 
-# 1️⃣ 保存元数据（轻量级 - 必须）
+# 1️⃣ 保存元数据到 metadata 子文件夹
 cat("📝 保存元数据表格...\n")
-write.csv(seurat_obj@meta.data,
-          file.path(output_dir, "Lymph_2-25M_clockgene_metadata.csv"),
-          row.names = TRUE)
+write.csv(
+  seurat_obj@meta.data,
+  file.path(output_subdirs$metadata, "Lymph_2-25M_clockgene_metadata.csv"),
+  row.names = TRUE
+)
 cat("✅ 元数据已保存 (CSV格式)\n")
 
-# 2️⃣ 可选：保存完整对象（仅在需要时）
+# 2️⃣ 可选：保存完整对象
 save_full_object <- FALSE  # ← 改为 TRUE 时才保存完整对象
 
 if (save_full_object) {
   cat("\n⚠️ 正在保存完整 Seurat 对象（较慢，文件较大）...\n")
-  saveRDS(seurat_obj, file.path(output_dir, "Lymph_2-25M_with_clockgene_niche.rds"))
+  saveRDS(
+    seurat_obj, 
+    file.path(output_subdirs$metadata, "Lymph_2-25M_with_clockgene_niche.rds")
+  )
   cat("✅ 完整对象已保存\n")
 } else {
   cat("\n💡 提示：完整 Seurat 对象未保存（节省时间和空间）\n")
