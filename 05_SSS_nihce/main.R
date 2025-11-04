@@ -296,19 +296,34 @@ for (i in seq_along(samples_to_plot)) {
   ) + ggtitle(sample_id) +
     theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
   
-  # Distance 图（✅ 修复：移除白色，保持深红→深蓝渐变）
-  p_niche <- SpatialFeaturePlot(
-    seurat_subset, features = "ClockGene_Distance",
-    pt.size.factor = 1.5, alpha = c(0.1, 1)
-  ) + scale_fill_gradientn(
+# Distance 图（字体颜色根据背景自动调整）
+p_niche <- ggplot(plot_data, aes(x = x, y = y)) +
+  geom_point(aes(fill = ClockGene_Distance), 
+             shape = 21, size = 4, color = "gray30", stroke = 0.2) +
+  scale_fill_gradientn(
     colors = c(
-      "#67001f", "#b2182b", "#d6604d", "#f46d43", "#fdae61",  # 深红→橙（近）
-      "#fee090", "#e0f3f8",                                    # 黄→浅蓝（过渡）
-      "#abd9e9", "#74add1", "#4575b4", "#313695"              # 蓝→深蓝（远）
+      "#67001f", "#b2182b", "#d6604d", "#f46d43", "#fdae61",
+      "#fee090", "#e0f3f8",
+      "#abd9e9", "#74add1", "#4575b4", "#313695"
     ),
-    name = "Distance to\nHigh Score Region"
-  ) + ggtitle(sample_id) +
-    theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
+    name = "Distance\n(bins)"
+  ) +
+  # ✅ 根据距离调整字体颜色
+  geom_text(
+    aes(
+      label = round(ClockGene_Distance, 0),
+      color = ifelse(ClockGene_Distance < 30, "white", "black")  # 近距离用白字，远距离用黑字
+    ),
+    size = 1.8, fontface = "bold", show.legend = FALSE
+  ) +
+  scale_color_identity() +  # 使用指定的颜色
+  coord_fixed(ratio = 1) +
+  ggtitle(sample_id) +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    legend.position = "right"
+  )
   
   # 合并图
   p_combined <- (p_score | p_niche) +
