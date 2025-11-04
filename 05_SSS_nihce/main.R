@@ -199,7 +199,7 @@ if (file.exists(score_cache_file)) {
     name = "ClockGene_Score"
   )
   
-  # 保存缓存（只保存计算结果列）
+# 保存缓存（只保存计算结果列）
   score_data <- data.frame(ClockGene_Score1 = seurat_obj$ClockGene_Score1)
   save_cache(score_data, score_cache_file, "Module Score 评分")
 }
@@ -209,9 +209,24 @@ cat(sprintf("   评分范围: %.3f ~ %.3f\n",
             min(seurat_obj$ClockGene_Score1, na.rm = TRUE),
             max(seurat_obj$ClockGene_Score1, na.rm = TRUE)))
 
-# 定义全局阈值 (Top 5%)
-threshold <- quantile(seurat_obj$ClockGene_Score1, 0.9, na.rm = TRUE)
-cat(sprintf("✅ 高表达阈值: %.3f (Top 5%%)\n", threshold))
+# ✅ 灵活的阈值设置
+THRESHOLD_QUANTILE <- 0.90  # ← 修改这里：0.90 = Top 10%, 0.95 = Top 5%, 0.99 = Top 1%
+
+# 计算阈值
+threshold <- quantile(seurat_obj$ClockGene_Score1, THRESHOLD_QUANTILE, na.rm = TRUE)
+
+# 自动生成描述
+threshold_pct <- (1 - THRESHOLD_QUANTILE) * 100
+if (threshold_pct < 1) {
+  threshold_desc <- sprintf("Top %.1f%%", threshold_pct)
+} else if (threshold_pct == round(threshold_pct)) {
+  threshold_desc <- sprintf("Top %d%%", as.integer(threshold_pct))
+} else {
+  threshold_desc <- sprintf("Top %.1f%%", threshold_pct)
+}
+
+cat(sprintf("✅ 高表达阈值: %.3f (%s, quantile=%.2f)\n", 
+            threshold, threshold_desc, THRESHOLD_QUANTILE))
 
 # 创建辅助列
 seurat_obj$ClockGene_High <- seurat_obj$ClockGene_Score1 > threshold
