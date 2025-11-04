@@ -84,27 +84,18 @@ seurat_obj <- AddModuleScore(
   name = "ClockGene_Score"
 )
 
-# 新列名：
-# -> seurat_obj$ClockGene_Score1
-
-VlnPlot(seurat_obj, features = "ClockGene_Score1", pt.size = 0) +
-  ggtitle("Clock Gene Module Score 分布")
-
-# 保存得分最高 30% 的阈值
+# 定义阈值
 threshold <- quantile(seurat_obj$ClockGene_Score1, 0.7)
 cat(sprintf("✅ 高表达阈值设定为: %.3f (Top 30%%)\n", threshold))
 
-# -----------------------------
-# 7. 计算 Niche 梯度
-# -----------------------------
+# 开始 Niche 分析
 cat("\n📈 开始 Niche 分析...\n")
 plan(multisession, workers = 6)
-options(future.globals.maxSize = 8 * 1024^3)
 
 seurat_obj <- niche_marker(
   .data = seurat_obj,
-  marker = ClockGene_Score1 > threshold,  # 以高表达区域为核心
-  spot_type = ClockGene_niche,            # 输出列名
+  marker = ClockGene_Score1 > quantile(seurat_obj$ClockGene_Score1, 0.7),
+  spot_type = ClockGene_niche,
   slide = orig.ident,
   dist_method = "Euclidean",
   FUN = ceiling,
