@@ -296,12 +296,47 @@ cat(sprintf("   距离范围: %.2f ~ %.2f\n",
             min(seurat_obj$ClockGene_Distance, na.rm = TRUE),
             max(seurat_obj$ClockGene_Distance, na.rm = TRUE)))
 
+
+# -----------------------------
+# 7.5. 绘图配置
+# -----------------------------
+cat("\n🔧 配置绘图参数...\n")
+
+# ✅ 1. 调试模式开关
+DEBUG_MODE <- TRUE  # ← 改为 FALSE 绘制所有样本
+DEBUG_SAMPLE_LIMIT <- 3  # 调试模式下只画前 N 个样本
+
+# ✅ 2. 获取所有样本名称
+samples <- unique(seurat_obj$orig.ident)
+cat(sprintf("✅ 检测到 %d 个样本\n", length(samples)))
+
+# ✅ 3. 打印样本列表（便于检查）
+if (length(samples) <= 10) {
+  cat("📋 样本列表:\n")
+  print(samples)
+} else {
+  cat("📋 前 10 个样本:\n")
+  print(head(samples, 10))
+  cat(sprintf("   ... 其余 %d 个未显示\n", length(samples) - 10))
+}
+
+# ✅ 4. 根据调试模式决定处理哪些样本
+if (DEBUG_MODE) {
+  samples_to_plot <- head(samples, min(DEBUG_SAMPLE_LIMIT, length(samples)))
+  cat(sprintf("\n🔧 调试模式已启用：只处理前 %d 个样本\n", length(samples_to_plot)))
+  cat("📋 待处理样本:", paste(samples_to_plot, collapse = ", "), "\n")
+  cat("💡 关闭调试模式: 设置 DEBUG_MODE <- FALSE\n")
+} else {
+  samples_to_plot <- samples
+  cat(sprintf("\n🚀 生产模式：将处理全部 %d 个样本\n", length(samples_to_plot)))
+}
+
+
 # -----------------------------
 # 8. 绘制 Isoheight 图 - 分样本保存
 # -----------------------------
 cat("\n🎨 绘制 Isoheight 图（分样本）...\n")
 
-# ... [调试模式设置保持不变] ...
 
 # 为每个样本单独绘图
 for (i in seq_along(samples_to_plot)) {
