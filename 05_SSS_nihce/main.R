@@ -253,146 +253,6 @@ print(table(seurat_obj$ClockGene_High))
 
 
 # -----------------------------
-# 6.5. 定义样本列表（在诊断前）
-# -----------------------------
-cat("\n📋 获取样本列表...\n")
-
-# ✅ 定义 samples 变量
-samples <- unique(seurat_obj$orig.ident)
-cat(sprintf("✅ 检测到 %d 个样本\n", length(samples)))
-
-# 打印样本列表
-if (length(samples) <= 10) {
-  cat("📋 样本列表:\n")
-  print(samples)
-} else {
-  cat("📋 前 10 个样本:\n")
-  print(head(samples, 10))
-  cat(sprintf("   ... 其余 %d 个未显示\n", length(samples) - 10))
-}
-
-# -----------------------------
-# 6.6. 诊断坐标系统
-# -----------------------------
-cat("\n🔍 诊断空间坐标系统...\n")
-
-# 选择一个样本进行测试
-test_sample <- samples[1]
-cat(sprintf("📊 测试样本: %s\n", test_sample))
-
-# 方法 1: 检查 GetAllCoordinates 返回的坐标
-cat("\n🔬 方法 1: GetAllCoordinates() 返回的坐标\n")
-test_coords1 <- GetAllCoordinates(seurat_obj[, seurat_obj$orig.ident == test_sample])
-cat(sprintf("   维度: %d 行 × %d 列\n", nrow(test_coords1), ncol(test_coords1)))
-cat("   列名:\n")
-print(colnames(test_coords1))
-cat(sprintf("   Row 范围: %.2f ~ %.2f\n", min(test_coords1$row), max(test_coords1$row)))
-cat(sprintf("   Col 范围: %.2f ~ %.2f\n", min(test_coords1$col), max(test_coords1$col)))
-cat(sprintf("   唯一 Row 值: %d\n", length(unique(test_coords1$row))))
-cat(sprintf("   唯一 Col 值: %d\n", length(unique(test_coords1$col))))
-
-# 方法 2: 检查 images 对象中的坐标
-cat("\n🔬 方法 2: 直接从 @images 对象获取坐标\n")
-test_obj <- seurat_obj[, seurat_obj$orig.ident == test_sample]
-image_names <- names(test_obj@images)
-cat(sprintf("   可用 images: %s\n", paste(image_names, collapse = ", ")))
-
-if (length(image_names) > 0) {
-  img <- test_obj@images[[image_names[1]]]
-  coords_full <- img@coordinates
-  cat(sprintf("   维度: %d 行 × %d 列\n", nrow(coords_full), ncol(coords_full)))
-  cat("   列名:\n")
-  print(colnames(coords_full))
-  
-  # 检查所有可用的坐标列
-  coord_cols <- c("imagerow", "imagecol", "row", "col")
-  for (col_name in coord_cols) {
-    if (col_name %in% colnames(coords_full)) {
-      col_range <- range(coords_full[[col_name]], na.rm = TRUE)
-      n_unique <- length(unique(coords_full[[col_name]]))
-      cat(sprintf("   %s: %.2f ~ %.2f (唯一值: %d)\n", 
-                  col_name, col_range[1], col_range[2], n_unique))
-    }
-  }
-}
-
-# 方法 3: 检查 GetTissueCoordinates 不同参数的结果
-cat("\n🔬 方法 3: GetTissueCoordinates() 不同 scale 参数\n")
-
-# scale = NULL
-coords_null <- GetTissueCoordinates(test_obj, cols = c("row", "col"), scale = NULL)
-cat("   scale = NULL:\n")
-cat(sprintf("      Row: %.2f ~ %.2f (唯一值: %d)\n", 
-            min(coords_null$row), max(coords_null$row), 
-            length(unique(coords_null$row))))
-cat(sprintf("      Col: %.2f ~ %.2f (唯一值: %d)\n", 
-            min(coords_null$col), max(coords_null$col), 
-            length(unique(coords_null$col))))
-
-# 尝试其他 scale 参数
-for (scale_param in c("lowres", "hires", "tissue")) {
-  tryCatch({
-    coords_test <- GetTissueCoordinates(test_obj, cols = c("row", "col"), scale = scale_param)
-    cat(sprintf("   scale = '%s':\n", scale_param))
-    cat(sprintf("      Row: %.2f ~ %.2f (唯一值: %d)\n", 
-                min(coords_test$row), max(coords_test$row), 
-                length(unique(coords_test$row))))
-    cat(sprintf("      Col: %.2f ~ %.2f (唯一值: %d)\n", 
-                min(coords_test$col), max(coords_test$col), 
-                length(unique(coords_test$col))))
-  }, error = function(e) {
-    cat(sprintf("   scale = '%s': 失败 - %s\n", scale_param, e$message))
-  })
-}
-
-# 分析坐标分辨率
-cat("\n🔍 坐标分辨率分析:\n")
-row_diffs <- diff(sort(unique(coords_null$row)))
-col_diffs <- diff(sort(unique(coords_null$col)))
-cat(sprintf("   相邻 Row 间距 (中位数): %.4f\n", median(row_diffs)))
-cat(sprintf("   相邻 Col 间距 (中位数): %.4f\n", median(col_diffs)))
-
-if (median(row_diffs) >= 1 & median(col_diffs) >= 1) {
-  cat("   ⚠️ 警告：坐标是离散的整数网格（bin），不是连续的像素坐标！\n")
-  cat("   💡 建议：检查是否有 imagerow/imagecol 可用\n")
-} else {
-  cat("   ✅ 坐标是连续的，分辨率较高\n")
-}
-
-# 可视化诊断
-cat("\n📊 生成诊断图...\n")
-library(ggplot2)
-
-# 提取测试样本的完整数据
-test_meta <- seurat_obj@meta.data %>%
-  filter(orig.ident == test_sample) %>%
-  rownames_to_column("cellid") %>%
-  left_join(test_coords1, by = "cellid")
-
-# 绘制坐标分布图
-p_coords <- ggplot(test_meta, aes(x = col, y = row, color = ClockGene_High)) +
-  geom_point(size = 1, alpha = 0.6) +
-  scale_color_manual(values = c("FALSE" = "gray70", "TRUE" = "red")) +
-  scale_y_reverse() +
-  coord_fixed(ratio = 1) +
-  labs(
-    title = sprintf("Coordinate System - %s", test_sample),
-    subtitle = sprintf("Row range: %.0f-%.0f | Col range: %.0f-%.0f",
-                      min(test_meta$row), max(test_meta$row),
-                      min(test_meta$col), max(test_meta$col))
-  ) +
-  theme_minimal()
-
-ggsave(
-  file.path(output_dir, "diagnostic_coordinates.pdf"),
-  plot = p_coords,
-  width = 10, height = 10, dpi = 300
-)
-cat("✅ 诊断图已保存: diagnostic_coordinates.pdf\n")
-
-cat("\n💡 请检查输出的坐标信息，然后继续...\n")
-
-# -----------------------------
 # 7. Niche 分析 - 缓存
 # -----------------------------
 cat("\n📈 开始 Niche 分析...\n")
@@ -611,9 +471,15 @@ if (DEBUG_MODE) {
 }
 
 # -----------------------------
-# 9.5. SSS Niche 热图可视化
+# 9.5. SSS Niche 热图可视化（平滑版）
 # -----------------------------
-cat("\n🎨 绘制 SSS Niche 热图...\n")
+cat("\n🎨 绘制 SSS Niche 热图（平滑插值）...\n")
+
+# 加载插值包
+if (!require("akima", quietly = TRUE)) {
+  install.packages("akima")
+}
+library(akima)
 
 # 根据调试模式决定绘制的样本
 if (DEBUG_MODE) {
@@ -665,74 +531,113 @@ for (i in seq_along(samples_to_plot_sss)) {
                 n_high, 100 * n_high / nrow(sample_meta),
                 n_low, 100 * n_low / nrow(sample_meta)))
     
-    # ✅ 绘制 SSS 热图（修复配色）
-    cat("   🔄 绘制 SSS 热图...\n")
-    p_sss_niche <- ggplot(sample_meta, aes(x = col, y = row)) +
-      # 1. 背景热图（显示 niche 距离）
-      geom_tile(
-        aes(fill = ClockGene_Distance), 
-        width = 1, 
-        height = 1
+    # ✅ 1. 空间插值生成平滑热图
+    cat("   🔄 进行空间插值...\n")
+    
+    # 创建插值网格（分辨率提高 5 倍）
+    col_range <- range(sample_meta$col, na.rm = TRUE)
+    row_range <- range(sample_meta$row, na.rm = TRUE)
+    
+    # 生成高分辨率网格
+    grid_res <- 200  # 网格分辨率
+    interp_result <- akima::interp(
+      x = sample_meta$col,
+      y = sample_meta$row,
+      z = sample_meta$ClockGene_Distance,
+      xo = seq(col_range[1], col_range[2], length.out = grid_res),
+      yo = seq(row_range[1], row_range[2], length.out = grid_res),
+      linear = FALSE,  # 使用样条插值（更平滑）
+      extrap = FALSE   # 不外推
+    )
+    
+    # 转换为数据框
+    interp_df <- expand.grid(
+      col = interp_result$x,
+      row = interp_result$y
+    ) %>%
+      mutate(distance = as.vector(interp_result$z))
+    
+    # 移除 NA 值（边界外的点）
+    interp_df <- interp_df %>% filter(!is.na(distance))
+    
+    cat(sprintf("   ✅ 插值完成：%d 个网格点\n", nrow(interp_df)))
+    
+    # ✅ 2. 计算统计
+    dist_range <- range(sample_meta$ClockGene_Distance, na.rm = TRUE)
+    dist_median <- median(sample_meta$ClockGene_Distance, na.rm = TRUE)
+    
+    # ✅ 3. 绘图
+    cat("   🔄 绘制图形...\n")
+    p_sss_niche <- ggplot() +
+      
+      # 1️⃣ 底层：平滑的插值热图
+      geom_raster(
+        data = interp_df,
+        aes(x = col, y = row, fill = distance),
+        interpolate = TRUE  # ✅ 关键：启用插值平滑
       ) +
-      # ✅ 修复配色：距离近（小值）= 红色，距离远（大值）= 蓝色
       scale_fill_gradientn(
         colours = c(
-          "#67001f", "#b2182b", "#d6604d", "#f4a582",  # 红色系（近）
+          "#67001f", "#b2182b", "#d6604d", "#f4a582",  # 深红→浅红（近）
           "#fddbc7", "#f7f7f7",                        # 白色过渡
-          "#d1e5f0", "#92c5de", "#4393c3", "#2166ac"   # 蓝色系（远）
+          "#d1e5f0", "#92c5de", "#4393c3", "#2166ac"   # 浅蓝→深蓝（远）
         ),
-        name = "Distance\n(to Niche)",
-        na.value = "white",
-        # ✅ 添加更清晰的图例
+        name = "Distance\n(bins)",
+        na.value = "gray95",
+        limits = c(0, max(sample_meta$ClockGene_Distance, na.rm = TRUE)),
         guide = guide_colorbar(
           title.position = "top",
           title.hjust = 0.5,
           barwidth = 1.5,
-          barheight = 10
+          barheight = 10,
+          frame.colour = "black",
+          ticks.colour = "black"
         )
       ) +
       
-      # 2. 叠加背景点 (Others - 低表达)
+      # 2️⃣ 中层：所有 spots（白色小点，模拟网格）
       geom_point(
-        data = sample_meta %>% filter(ClockGene_High == FALSE),
+        data = sample_meta,
         aes(x = col, y = row),
-        color = "gray70",
-        size = 0.3,
-        alpha = 0.5
+        color = "white",
+        size = 0.8,
+        alpha = 0.6,
+        shape = 16
       ) +
       
-      # 3. 高亮点 (SSS - 高表达，距离应该为 0，显示为深红色)
+      # 3️⃣ 顶层：高表达 spots（黑色大点）
       geom_point(
         data = sample_meta %>% filter(ClockGene_High == TRUE),
         aes(x = col, y = row),
         color = "black",
-        size = 0.8,
-        alpha = 0.8
+        size = 2.5,
+        alpha = 0.9,
+        shape = 16
       ) +
       
-      # 4. 坐标和主题
-      scale_y_reverse() +
+      # 4️⃣ 坐标和主题
+      scale_x_continuous(expand = expansion(mult = 0.02)) +
+      scale_y_reverse(expand = expansion(mult = 0.02)) +
       coord_fixed(ratio = 1) +
       labs(
         title = sample_id,
         subtitle = sprintf(
-          "🔴 SSS (High): %d spots (%.1f%%) | ⚪ Others: %d spots (%.1f%%)",
+          "⚫ SSS: %d spots (%.1f%%) | ⚪ All spots: %d | Distance: %.2f - %.2f bins",
           n_high, 100 * n_high / nrow(sample_meta),
-          n_low, 100 * n_low / nrow(sample_meta)
+          nrow(sample_meta),
+          dist_range[1], dist_range[2]
         )
       ) +
-      theme_minimal() +
+      theme_void() +  # ✅ 使用 theme_void() 去除所有背景
       theme(
-        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
-        plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray40"),
-        axis.title = element_blank(),
-        axis.text = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold", margin = margin(b = 5)),
+        plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray40", margin = margin(b = 10)),
         legend.position = "right",
         legend.title = element_text(size = 11, face = "bold"),
         legend.text = element_text(size = 9),
-        plot.margin = margin(10, 10, 10, 10)
+        plot.margin = margin(10, 10, 10, 10),
+        plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA)
       )
     
     # 保存 PDF
@@ -756,6 +661,7 @@ for (i in seq_along(samples_to_plot_sss)) {
     
   }, error = function(e) {
     cat(sprintf("   ❌ 绘制失败: %s\n", conditionMessage(e)))
+    traceback()
     cat("   跳过该样本...\n")
   })
 }
