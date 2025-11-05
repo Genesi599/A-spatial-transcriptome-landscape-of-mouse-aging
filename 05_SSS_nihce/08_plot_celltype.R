@@ -9,21 +9,22 @@
 # 辅助函数 0：统一的颜色方案
 # ===================================================================
 
-#' 生成统一的zone颜色方案
+#' 生成统一的zone颜色方案（密度从高到低）
 #'
 #' @param n_zones zone数量
 #' @return 命名的颜色向量
 get_zone_colors <- function(n_zones = 5) {
+  # Zone_0 = 核心（深红），Zone_4 = 外围（浅黄）
   zone_colors <- colorRampPalette(c(
-    "#ffffcc",  # 浅黄（最外层）
-    "#ffeda0",
-    "#fed976",
-    "#feb24c",
-    "#fd8d3c",
-    "#fc4e2a",
-    "#e31a1c",
+    "#800026",  # 深红（核心 Zone_0）
     "#bd0026",
-    "#800026"   # 深红（核心区）
+    "#e31a1c",
+    "#fc4e2a",
+    "#fd8d3c",
+    "#feb24c",
+    "#fed976",
+    "#ffeda0",
+    "#ffffcc"   # 浅黄（外围 Zone_n-1）
   ))(n_zones)
   
   zone_names <- sprintf("Zone_%d", 0:(n_zones - 1))
@@ -129,7 +130,8 @@ analyze_celltype_niche <- function(
   }
   
   cat(sprintf("✅ 将分析 %d 个样本\n", length(samples_to_plot)))
-  cat(sprintf("✅ 等高线分为 %d 个区域\n", density_bins))
+  cat(sprintf("✅ 等高线分为 %d 个区域 (Zone_0=核心高密度, Zone_%d=外围低密度)\n", 
+              density_bins, density_bins - 1))
   
   # ========================================
   # 2. 初始化结果容器
@@ -199,6 +201,13 @@ analyze_celltype_niche <- function(
           by = c("col", "row")
         )
       
+      # 检查NA情况
+      n_na <- sum(is.na(df$density_zone))
+      if (n_na > 0) {
+        cat(sprintf("   ⚠️  警告: %d 个spots未分配到zone (%.2f%%)\n", 
+                    n_na, 100 * n_na / nrow(df)))
+      }
+      
       # 统计每个区域的细胞类型组成
       zone_composition <- df %>%
         filter(!is.na(density_zone)) %>%
@@ -212,7 +221,27 @@ analyze_celltype_niche <- function(
         ungroup() %>%
         mutate(sample = sample_id)
       
-      cat(sprintf("   ✅ 密度分区完成，共 %d 个区域\n", density_bins))
+      cat(sprintf("   ✅ 密度分区完成，共 %d 个区域\n", 
+                  length(unique(zone_composition$density_zone))))
+      
+      # 打印每个zone的统计
+      zone_stats <- df %>%
+        filter(!is.na(density_zone)) %>%
+        group_by(density_zone) %>%
+        summarise(
+          n_spots = n(),
+          mean_density = mean(density_value, na.rm = TRUE),
+          .groups = "drop"
+        ) %>%
+        arrange(density_zone)
+      
+      cat("   Zone统计:\n")
+      for (j in 1:nrow(zone_stats)) {
+        cat(sprintf("     %s: %d spots (mean density: %.3f)\n",
+                    zone_stats$density_zone[j],
+                    zone_stats$n_spots[j],
+                    zone_stats$mean_density[j]))
+      }
       
       # 保存到总体数据
       all_sample_stats[[sample_id]] <- zone_composition
@@ -344,7 +373,7 @@ analyze_celltype_niche <- function(
 
 
 # ===================================================================
-# 辅助函数 1：计算密度分区
+# 辅助函数 1：计算密度分区（修改版：反转zone序号）
 # ===================================================================
 
 calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) {
@@ -392,27 +421,56 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
   # 归一化密度
   density_df$density_norm <- density_df$density / max(density_df$density, na.rm = TRUE)
   
-  # 分级（0 = 最外层，density_bins-1 = 核心区）
+  # 分级（反转：Zone_0 = 最高密度核心，Zone_n-1 = 最低密度外围）
   density_df$density_zone <- cut(
     density_df$density_norm,
     breaks = seq(0, 1, length.out = density_bins + 1),
-    labels = sprintf("Zone_%d", 0:(density_bins - 1)),
-    include.lowest = TRUE
+    labels = sprintf("Zone_%d", (density_bins - 1):0),  # 反转标签顺序
+    include.lowest = TRUE,
+    right = TRUE
   )
   
-  # 为每个spot分配最近的密度区域
+  # 为每个spot分配最近的密度区域（使用更可靠的方法）
+  # 创建一个密度网格的索引
   spot_zones <- df %>%
     select(col, row) %>%
+    mutate(
+      # 找到最近的网格点
+      col_idx = sapply(col, function(x) which.min(abs(kde_result$x - x))),
+      row_idx = sapply(row, function(y) which.min(abs(kde_result$y - y)))
+    ) %>%
     rowwise() %>%
     mutate(
-      nearest_idx = which.min(
-        (density_df$col - col)^2 + (density_df$row - row)^2
-      ),
-      density_zone = density_df$density_zone[nearest_idx],
-      density_value = density_df$density_norm[nearest_idx]
+      # 根据索引获取密度zone
+      grid_idx = (col_idx - 1) * length(kde_result$y) + row_idx,
+      density_zone = density_df$density_zone[grid_idx],
+      density_value = density_df$density_norm[grid_idx]
     ) %>%
     ungroup() %>%
     select(col, row, density_zone, density_value)
+  
+  # 检查是否有NA，如果有，使用最近邻方法填充
+  if (any(is.na(spot_zones$density_zone))) {
+    cat("   ⚠️  检测到NA，使用最近邻方法填充...\n")
+    
+    # 对有NA的点，使用KNN方法分配
+    na_spots <- which(is.na(spot_zones$density_zone))
+    
+    for (idx in na_spots) {
+      spot_col <- spot_zones$col[idx]
+      spot_row <- spot_zones$row[idx]
+      
+      # 计算到所有网格点的距离
+      distances <- sqrt((density_df$col - spot_col)^2 + (density_df$row - spot_row)^2)
+      
+      # 找到最近的非NA点
+      valid_idx <- which(!is.na(density_df$density_zone))
+      nearest_valid <- valid_idx[which.min(distances[valid_idx])]
+      
+      spot_zones$density_zone[idx] <- density_df$density_zone[nearest_valid]
+      spot_zones$density_value[idx] <- density_df$density_norm[nearest_valid]
+    }
+  }
   
   return(list(
     grid = density_df,
@@ -453,7 +511,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       mean_density = mean(density_norm, na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    arrange(mean_density)
+    arrange(desc(mean_density))  # 按密度从高到低排序
   
   # 为zone创建带密度信息的标签
   zone_labels <- zone_density_ranges %>%
@@ -478,7 +536,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     scale_fill_manual(
       values = zone_colors,
       labels = zone_labels,
-      name = "Density Zones\n(Normalized Range)",
+      name = "Density Zones\n(Normalized Range)\nZone_0=Core",
       breaks = zone_levels,
       guide = guide_legend(
         order = 1,
@@ -512,7 +570,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     
     # 3. 细胞类型点
     geom_point(
-      data = df,
+      data = df %>% filter(!is.na(density_zone)),
       aes(x = col, y = row, fill = celltype_clean),
       shape = 21,
       size = 2.5,
@@ -538,12 +596,12 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     coord_fixed(ratio = 1) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = "Background colors = Density zones | Black lines = Zone boundaries | Points = Cell types"
+      subtitle = "Background = Density zones (Zone_0=Core/High, Higher number=Outer/Low) | Lines = Boundaries | Points = Cell types"
     ) +
     theme_void() +
     theme(
       plot.title = element_text(hjust = 0.5, size = 16, face = "bold", margin = margin(b = 5)),
-      plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray30", margin = margin(b = 10)),
+      plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray30", margin = margin(b = 10)),
       legend.position = "right",
       legend.box = "vertical",
       legend.spacing.y = unit(0.5, "cm"),
@@ -580,7 +638,7 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
     labs(
       title = sprintf("Cell Type Composition by Density Zone - %s", sample_id),
-      x = "Density Zone (0=Outer, Higher=Core)",
+      x = "Density Zone (0=Core/High, Higher=Outer/Low)",
       y = "Percentage (%)"
     ) +
     theme_classic() +
@@ -605,7 +663,7 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
     scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
     labs(
       title = "Total Spots per Density Zone",
-      x = "Density Zone",
+      x = "Density Zone (0=Core → Higher=Outer)",
       y = "Count"
     ) +
     theme_classic() +
@@ -664,7 +722,7 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
     labs(
       title = "Cell Type Composition Across Density Zones (All Samples)",
       subtitle = sprintf("Averaged across %d samples", length(unique(combined_data$sample))),
-      x = "Density Zone (0=Outer → Higher=Core)",
+      x = "Density Zone (0=Core/High → Higher=Outer/Low)",
       y = "Cell Type"
     ) +
     theme_minimal() +
@@ -731,7 +789,7 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
     labs(
       title = "Cell Type Percentage Distribution by Density Zone",
       subtitle = sprintf("Data from %d samples", length(unique(combined_data$sample))),
-      x = "Density Zone (0=Outer → Higher=Core)",
+      x = "Density Zone (0=Core/High → Higher=Outer/Low)",
       y = "Percentage (%)"
     ) +
     theme_bw() +
@@ -772,7 +830,7 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
     labs(
       title = "Cell Type Enrichment Trend Across Density Zones",
       subtitle = "Mean ± SE across all samples",
-      x = "Density Zone (0=Outer → Higher=Core)",
+      x = "Density Zone (0=Core/High → Higher=Outer/Low)",
       y = "Mean Percentage (%)"
     ) +
     theme_classic() +
@@ -830,7 +888,8 @@ generate_summary_statistics <- function(combined_data) {
       max_pct = max(percentage),
       min_zone = density_zone[which.min(percentage)],
       min_pct = min(percentage),
-      core_enrichment = mean(percentage[zone_numeric >= 3]) - mean(percentage[zone_numeric < 3]),
+      # Zone_0和Zone_1是核心区，其他是外围
+      core_enrichment = mean(percentage[zone_numeric <= 1]) - mean(percentage[zone_numeric > 1]),
       n_samples = length(unique(sample)),
       .groups = "drop"
     ) %>%
