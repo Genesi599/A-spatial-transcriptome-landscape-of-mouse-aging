@@ -1,56 +1,662 @@
-#!/usr/bin/env Rscript
 # ===================================================================
-# 细胞类型 + 等高线分析
+# 08_plot_celltype.R
+# 细胞类型 + 等高线分析完整工作流
+# Author: Assistant
+# Date: 2025-11-05
 # ===================================================================
 
-plot_celltype_analysis <- function(seurat_obj, samples_to_plot, config) {
-  if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
-    cat("⚠️ 未找到 'celltype' 列，跳过分析\n\n")
-    return(NULL)
+# ===================================================================
+# 主函数：细胞类型等高线分析
+# ===================================================================
+
+#' 细胞类型 + Clock Gene Niche 等高线综合分析
+#'
+#' @param seurat_obj Seurat 对象
+#' @param samples_to_plot 要分析的样本列表
+#' @param CONFIG 配置列表
+#' @param density_bins 等高线分级数量，默认 5（对应5个区域）
+#' @param celltype_col 细胞类型列名，默认 "celltype"
+#' @param plot_overlay 是否绘制叠加图，默认 TRUE
+#' @param plot_composition 是否绘制组成图，默认 TRUE
+#' @param plot_heatmap 是否绘制热图，默认 TRUE
+#' @param plot_combined 是否绘制合并分析图，默认 TRUE
+#'
+#' @return 返回统计数据列表
+#'
+#' @examples
+#' result <- analyze_celltype_niche(seurat_obj, samples_to_plot, CONFIG)
+#'
+analyze_celltype_niche <- function(
+    seurat_obj,
+    samples_to_plot,
+    CONFIG,
+    density_bins = 5,
+    celltype_col = "celltype",
+    plot_overlay = TRUE,
+    plot_composition = TRUE,
+    plot_heatmap = TRUE,
+    plot_combined = TRUE
+) {
+  
+  cat("\n")
+  cat(rep("=", 80), "\n", sep = "")
+  cat("🧬 细胞类型 + Clock Gene Niche 等高线分析\n")
+  cat(rep("=", 80), "\n\n", sep = "")
+  
+  # ========================================
+  # 1. 参数验证
+  # ========================================
+  required_cols <- c("ClockGene_High", "orig.ident", celltype_col)
+  missing_cols <- setdiff(required_cols, colnames(seurat_obj@meta.data))
+  
+  if (length(missing_cols) > 0) {
+    stop(sprintf("❌ Seurat对象缺少必需列: %s", paste(missing_cols, collapse = ", ")))
   }
   
-  cat("🎨 绘制细胞类型分析图...\n")
+  # 创建输出目录
+  output_dirs <- c(
+    CONFIG$dirs$overlay,
+    CONFIG$dirs$celltype,
+    CONFIG$dirs$composition,
+    CONFIG$dirs$heatmaps,
+    CONFIG$dirs$combined
+  )
   
-  # 生成颜色方案
-  n_celltypes <- length(unique(seurat_obj$celltype))
-  celltype_colors <- generate_celltype_colors(n_celltypes)
-  names(celltype_colors) <- sort(unique(seurat_obj$celltype))
-  
-  all_stats <- list()
-  
-  for (i in seq_along(samples_to_plot)) {
-    sample_id <- samples_to_plot[i]
-    cat(sprintf("[%d/%d] %s\n", i, length(samples_to_plot), sample_id))
-    
-    stats <- plot_single_sample_celltype(
-      seurat_obj, 
-      sample_id, 
-      celltype_colors, 
-      config
-    )
-    
-    if (!is.null(stats)) {
-      all_stats[[sample_id]] <- stats
+  for (dir in output_dirs) {
+    if (!dir.exists(dir)) {
+      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
     }
   }
   
-  cat("✅ 细胞类型分析完成\n\n")
-  return(all_stats)
-}
-
-# 辅助函数
-generate_celltype_colors <- function(n) {
-  if (n <= 8) {
-    brewer.pal(max(3, n), "Set2")
-  } else if (n <= 12) {
-    brewer.pal(n, "Set3")
-  } else {
-    c(brewer.pal(9, "Set1"), brewer.pal(8, "Set2"), brewer.pal(12, "Set3"))[1:n]
+  # 验证样本
+  available_samples <- unique(seurat_obj$orig.ident)
+  samples_to_plot <- intersect(samples_to_plot, available_samples)
+  
+  if (length(samples_to_plot) == 0) {
+    stop("❌ 没有有效的样本可分析")
   }
+  
+  cat(sprintf("✅ 将分析 %d 个样本\n", length(samples_to_plot)))
+  cat(sprintf("✅ 等高线分为 %d 个区域\n", density_bins))
+  
+  # ========================================
+  # 2. 初始化结果容器
+  # ========================================
+  all_sample_stats <- list()
+  combined_data <- data.frame()
+  
+  # ========================================
+  # 3. 逐样本分析
+  # ========================================
+  for (i in seq_along(samples_to_plot)) {
+    sample_id <- samples_to_plot[i]
+    cat(sprintf("\n[%d/%d] 📊 分析样本: %s\n", i, length(samples_to_plot), sample_id))
+    cat(rep("-", 80), "\n", sep = "")
+    
+    tryCatch({
+      # -------------------------------
+      # 3.1 提取样本数据
+      # -------------------------------
+      seurat_subset <- subset(seurat_obj, subset = orig.ident == sample_id)
+      
+      if (ncol(seurat_subset) == 0) {
+        warning(sprintf("样本 %s 无数据，跳过", sample_id))
+        next
+      }
+      
+      # 获取坐标
+      coords <- GetTissueCoordinates(
+        seurat_subset,
+        cols = c("row", "col"),
+        scale = NULL
+      )
+      
+      # 合并数据
+      df <- seurat_subset@meta.data %>%
+        rownames_to_column("barcode") %>%
+        left_join(coords %>% rownames_to_column("barcode"), by = "barcode") %>%
+        filter(!is.na(col), !is.na(row))
+      
+      # 检查细胞类型
+      df$celltype_clean <- as.character(df[[celltype_col]])
+      df$celltype_clean[is.na(df$celltype_clean)] <- "Unknown"
+      
+      cat(sprintf("   ✅ 有效spots: %d\n", nrow(df)))
+      cat(sprintf("   ✅ 高表达spots: %d (%.2f%%)\n", 
+                  sum(df$ClockGene_High), 
+                  100 * mean(df$ClockGene_High)))
+      
+      # -------------------------------
+      # 3.2 计算密度并分级
+      # -------------------------------
+      density_data <- calculate_density_zones(
+        df = df,
+        density_bins = density_bins,
+        expand_margin = CONFIG$plot$expand_margin %||% 0.05
+      )
+      
+      if (is.null(density_data)) {
+        warning(sprintf("样本 %s 密度计算失败，跳过", sample_id))
+        next
+      }
+      
+      # 合并密度信息
+      df <- df %>%
+        left_join(
+          density_data$spot_zones %>% select(col, row, density_zone),
+          by = c("col", "row")
+        )
+      
+      # 统计每个区域的细胞类型组成
+      zone_composition <- df %>%
+        filter(!is.na(density_zone)) %>%
+        group_by(density_zone, celltype_clean) %>%
+        summarise(count = n(), .groups = "drop") %>%
+        group_by(density_zone) %>%
+        mutate(
+          total = sum(count),
+          percentage = 100 * count / total
+        ) %>%
+        ungroup() %>%
+        mutate(sample = sample_id)
+      
+      cat(sprintf("   ✅ 密度分区完成，共 %d 个区域\n", density_bins))
+      
+      # 保存到总体数据
+      all_sample_stats[[sample_id]] <- zone_composition
+      combined_data <- bind_rows(combined_data, zone_composition)
+      
+      # -------------------------------
+      # 3.3 绘制叠加图
+      # -------------------------------
+      if (plot_overlay) {
+        p_overlay <- plot_celltype_density_overlay(
+          df = df,
+          density_data = density_data,
+          sample_id = sample_id,
+          CONFIG = CONFIG
+        )
+        
+        safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+        ggsave(
+          file.path(CONFIG$dirs$overlay, sprintf("celltype_overlay_%s.pdf", safe_name)),
+          plot = p_overlay,
+          width = 12, height = 10, dpi = CONFIG$plot$dpi %||% 300
+        )
+        cat("   ✅ 保存叠加图\n")
+      }
+      
+      # -------------------------------
+      # 3.4 绘制组成图
+      # -------------------------------
+      if (plot_composition) {
+        p_comp <- plot_zone_composition(
+          zone_composition = zone_composition,
+          sample_id = sample_id,
+          CONFIG = CONFIG
+        )
+        
+        safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+        ggsave(
+          file.path(CONFIG$dirs$composition, sprintf("composition_%s.pdf", safe_name)),
+          plot = p_comp,
+          width = 12, height = 6, dpi = CONFIG$plot$dpi %||% 300
+        )
+        cat("   ✅ 保存组成图\n")
+      }
+      
+    }, error = function(e) {
+      cat(sprintf("   ❌ 错误: %s\n", e$message))
+    })
+  }
+  
+  # ========================================
+  # 4. 合并所有样本的统计分析
+  # ========================================
+  if (nrow(combined_data) > 0) {
+    cat("\n")
+    cat(rep("=", 80), "\n", sep = "")
+    cat("📈 合并所有样本进行统计分析\n")
+    cat(rep("=", 80), "\n\n", sep = "")
+    
+    # -------------------------------
+    # 4.1 绘制热图
+    # -------------------------------
+    if (plot_heatmap) {
+      p_heatmap <- plot_combined_heatmap(
+        combined_data = combined_data,
+        CONFIG = CONFIG
+      )
+      
+      ggsave(
+        file.path(CONFIG$dirs$heatmaps, "celltype_heatmap_all_samples.pdf"),
+        plot = p_heatmap,
+        width = 14, height = 10, dpi = CONFIG$plot$dpi %||% 300
+      )
+      cat("✅ 保存合并热图\n")
+    }
+    
+    # -------------------------------
+    # 4.2 绘制综合分析图
+    # -------------------------------
+    if (plot_combined) {
+      p_combined <- plot_combined_analysis(
+        combined_data = combined_data,
+        CONFIG = CONFIG
+      )
+      
+      ggsave(
+        file.path(CONFIG$dirs$combined, "combined_analysis.pdf"),
+        plot = p_combined,
+        width = 16, height = 12, dpi = CONFIG$plot$dpi %||% 300
+      )
+      cat("✅ 保存综合分析图\n")
+    }
+    
+    # -------------------------------
+    # 4.3 保存统计数据
+    # -------------------------------
+    write.csv(
+      combined_data,
+      file.path(CONFIG$dirs$composition, "celltype_composition_all_samples.csv"),
+      row.names = FALSE
+    )
+    cat("✅ 保存统计数据 CSV\n")
+    
+    # -------------------------------
+    # 4.4 统计摘要
+    # -------------------------------
+    summary_stats <- generate_summary_statistics(combined_data)
+    write.csv(
+      summary_stats,
+      file.path(CONFIG$dirs$composition, "summary_statistics.csv"),
+      row.names = FALSE
+    )
+    cat("✅ 保存统计摘要\n")
+  }
+  
+  # ========================================
+  # 5. 返回结果
+  # ========================================
+  cat("\n")
+  cat(rep("=", 80), "\n", sep = "")
+  cat("✅ 分析完成！\n")
+  cat(rep("=", 80), "\n\n", sep = "")
+  
+  invisible(list(
+    sample_stats = all_sample_stats,
+    combined_data = combined_data,
+    summary_stats = if(exists("summary_stats")) summary_stats else NULL
+  ))
 }
 
-plot_single_sample_celltype <- function(seurat_obj, sample_id, colors, config) {
-  # 这里放置原来第13部分的单个样本处理逻辑
-  # 为了篇幅，这里省略具体实现，可根据需要补充
-  # 返回统计数据
+
+# ===================================================================
+# 辅助函数 1：计算密度分区
+# ===================================================================
+
+calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) {
+  
+  # 只使用高表达点计算密度
+  high_points <- df %>% filter(ClockGene_High)
+  
+  if (nrow(high_points) < 10) {
+    warning("高表达点数量不足（< 10），无法计算密度")
+    return(NULL)
+  }
+  
+  # 计算坐标范围
+  col_range <- range(df$col, na.rm = TRUE)
+  row_range <- range(df$row, na.rm = TRUE)
+  
+  col_expand <- diff(col_range) * expand_margin
+  row_expand <- diff(row_range) * expand_margin
+  
+  col_limits <- c(col_range[1] - col_expand, col_range[2] + col_expand)
+  row_limits <- c(row_range[1] - row_expand, row_range[2] + row_expand)
+  
+  # 使用 MASS::kde2d 计算密度
+  kde_result <- tryCatch({
+    MASS::kde2d(
+      x = high_points$col,
+      y = high_points$row,
+      n = 200,
+      lims = c(col_limits, row_limits)
+    )
+  }, error = function(e) {
+    warning(sprintf("密度估计失败: %s", e$message))
+    return(NULL)
+  })
+  
+  if (is.null(kde_result)) return(NULL)
+  
+  # 转换为 data frame
+  density_df <- expand.grid(
+    col = kde_result$x,
+    row = kde_result$y
+  )
+  density_df$density <- as.vector(kde_result$z)
+  
+  # 归一化密度
+  density_df$density_norm <- density_df$density / max(density_df$density, na.rm = TRUE)
+  
+  # 分级（0 = 最外层，density_bins-1 = 核心区）
+  density_df$density_zone <- cut(
+    density_df$density_norm,
+    breaks = seq(0, 1, length.out = density_bins + 1),
+    labels = sprintf("Zone_%d", 0:(density_bins - 1)),
+    include.lowest = TRUE
+  )
+  
+  # 为每个spot分配最近的密度区域
+  spot_zones <- df %>%
+    select(col, row) %>%
+    rowwise() %>%
+    mutate(
+      nearest_idx = which.min(
+        (density_df$col - col)^2 + (density_df$row - row)^2
+      ),
+      density_zone = density_df$density_zone[nearest_idx],
+      density_value = density_df$density_norm[nearest_idx]
+    ) %>%
+    ungroup() %>%
+    select(col, row, density_zone, density_value)
+  
+  return(list(
+    grid = density_df,
+    spot_zones = spot_zones,
+    kde_result = kde_result
+  ))
+}
+
+
+# ===================================================================
+# 辅助函数 2：绘制细胞类型+密度叠加图
+# ===================================================================
+
+plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
+  
+  # 生成细胞类型颜色
+  celltypes <- unique(df$celltype_clean)
+  n_celltypes <- length(celltypes)
+  
+  if (n_celltypes <= 8) {
+    celltype_colors <- brewer.pal(max(3, n_celltypes), "Set2")
+  } else if (n_celltypes <= 12) {
+    celltype_colors <- brewer.pal(n_celltypes, "Set3")
+  } else {
+    celltype_colors <- c(
+      brewer.pal(9, "Set1"),
+      brewer.pal(8, "Set2"),
+      brewer.pal(12, "Set3")
+    )[1:n_celltypes]
+  }
+  names(celltype_colors) <- celltypes
+  
+  # 坐标范围
+  col_range <- range(df$col, na.rm = TRUE)
+  row_range <- range(df$row, na.rm = TRUE)
+  expand <- CONFIG$plot$expand_margin %||% 0.05
+  
+  col_limits <- col_range + c(-1, 1) * diff(col_range) * expand
+  row_limits <- row_range + c(-1, 1) * diff(row_range) * expand
+  
+  # 绘图
+  p <- ggplot() +
+    # 1. 密度等高线填充（底层）
+    geom_contour_filled(
+      data = density_data$grid,
+      aes(x = col, y = row, z = density_norm),
+      bins = 8,
+      alpha = 0.25
+    ) +
+    scale_fill_manual(
+      values = colorRampPalette(brewer.pal(9, "YlOrRd")[3:9])(9),
+      name = "Density",
+      guide = guide_legend(order = 1, override.aes = list(alpha = 0.6))
+    ) +
+    new_scale_fill() +
+    
+    # 2. 细胞类型点（顶层）
+    geom_point(
+      data = df,
+      aes(x = col, y = row, fill = celltype_clean),
+      shape = 21,
+      size = 2,
+      color = "white",
+      stroke = 0.15,
+      alpha = 0.8
+    ) +
+    scale_fill_manual(
+      values = celltype_colors,
+      name = "Cell Type",
+      guide = guide_legend(
+        order = 2,
+        override.aes = list(size = 4, alpha = 1)
+      )
+    ) +
+    
+    # 3. 等高线线条
+    geom_contour(
+      data = density_data$grid,
+      aes(x = col, y = row, z = density_norm),
+      color = "white",
+      linewidth = 0.3,
+      bins = 8,
+      alpha = 0.6
+    ) +
+    
+    # 坐标和主题
+    scale_x_continuous(limits = col_limits, expand = expansion(mult = 0.02)) +
+    scale_y_reverse(limits = rev(row_limits), expand = expansion(mult = 0.02)) +
+    coord_fixed(ratio = 1) +
+    ggtitle(sprintf("Cell Type Distribution + Density Contour - %s", sample_id)) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      legend.position = "right",
+      legend.box = "vertical",
+      legend.title = element_text(size = 10, face = "bold"),
+      legend.text = element_text(size = 8),
+      plot.margin = margin(10, 10, 10, 10)
+    )
+  
+  return(p)
+}
+
+
+# ===================================================================
+# 辅助函数 3：绘制区域组成柱状图
+# ===================================================================
+
+plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
+  
+  # 生成颜色
+  celltypes <- unique(zone_composition$celltype_clean)
+  n_celltypes <- length(celltypes)
+  
+  if (n_celltypes <= 8) {
+    colors <- brewer.pal(max(3, n_celltypes), "Set2")
+  } else {
+    colors <- rainbow(n_celltypes)
+  }
+  names(colors) <- celltypes
+  
+  # 堆叠柱状图
+  p1 <- ggplot(zone_composition, aes(x = density_zone, y = percentage, fill = celltype_clean)) +
+    geom_bar(stat = "identity", position = "stack", color = "white", linewidth = 0.2) +
+    scale_fill_manual(values = colors, name = "Cell Type") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+    labs(
+      title = sprintf("Cell Type Composition by Density Zone - %s", sample_id),
+      x = "Density Zone (0=Outer, Higher=Core)",
+      y = "Percentage (%)"
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      legend.position = "right"
+    )
+  
+  # Spot数量柱状图
+  p2 <- zone_composition %>%
+    group_by(density_zone) %>%
+    summarise(total = sum(count)) %>%
+    ggplot(aes(x = density_zone, y = total)) +
+    geom_bar(stat = "identity", fill = "steelblue", alpha = 0.7) +
+    geom_text(aes(label = total), vjust = -0.5, size = 3.5) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
+    labs(
+      title = "Total Spots per Zone",
+      x = "Density Zone",
+      y = "Count"
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1)
+    )
+  
+  # 合并
+  p_combined <- p1 / p2 + plot_layout(heights = c(2, 1))
+  
+  return(p_combined)
+}
+
+
+# ===================================================================
+# 辅助函数 4：绘制合并热图
+# ===================================================================
+
+plot_combined_heatmap <- function(combined_data, CONFIG) {
+  
+  # 计算平均百分比
+  heatmap_data <- combined_data %>%
+    group_by(density_zone, celltype_clean) %>%
+    summarise(
+      mean_pct = mean(percentage),
+      sd_pct = sd(percentage),
+      n_samples = n(),
+      .groups = "drop"
+    )
+  
+  # 绘制热图
+  p <- ggplot(heatmap_data, aes(x = density_zone, y = celltype_clean, fill = mean_pct)) +
+    geom_tile(color = "white", linewidth = 0.5) +
+    geom_text(aes(label = sprintf("%.1f", mean_pct)), size = 3, color = "black") +
+    scale_fill_gradientn(
+      colors = c("white", "#fee090", "#fc8d59", "#d73027"),
+      name = "Mean %",
+      limits = c(0, NA)
+    ) +
+    labs(
+      title = "Cell Type Composition Across Density Zones (All Samples)",
+      x = "Density Zone",
+      y = "Cell Type"
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+      axis.text.y = element_text(size = 10),
+      legend.position = "right",
+      panel.grid = element_blank()
+    )
+  
+  return(p)
+}
+
+
+# ===================================================================
+# 辅助函数 5：绘制综合分析图
+# ===================================================================
+
+plot_combined_analysis <- function(combined_data, CONFIG) {
+  
+  # 1. 箱线图：每个区域的细胞类型比例分布
+  p1 <- ggplot(combined_data, aes(x = density_zone, y = percentage, fill = density_zone)) +
+    geom_boxplot(alpha = 0.7, outlier.shape = 16, outlier.size = 1) +
+    scale_fill_brewer(palette = "YlOrRd", guide = "none") +
+    facet_wrap(~celltype_clean, scales = "free_y", ncol = 4) +
+    labs(
+      title = "Cell Type Percentage Distribution by Zone",
+      x = "Density Zone",
+      y = "Percentage (%)"
+    ) +
+    theme_bw() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+      strip.background = element_rect(fill = "gray90"),
+      strip.text = element_text(face = "bold", size = 9)
+    )
+  
+  # 2. 趋势图：核心到外围的变化
+  trend_data <- combined_data %>%
+    mutate(zone_numeric = as.numeric(gsub("Zone_", "", density_zone))) %>%
+    group_by(celltype_clean, zone_numeric) %>%
+    summarise(
+      mean_pct = mean(percentage),
+      se_pct = sd(percentage) / sqrt(n()),
+      .groups = "drop"
+    )
+  
+  p2 <- ggplot(trend_data, aes(x = zone_numeric, y = mean_pct, color = celltype_clean, group = celltype_clean)) +
+    geom_line(linewidth = 1) +
+    geom_point(size = 2) +
+    geom_errorbar(aes(ymin = mean_pct - se_pct, ymax = mean_pct + se_pct), width = 0.2) +
+    scale_color_brewer(palette = "Set2", name = "Cell Type") +
+    labs(
+      title = "Cell Type Enrichment Trend (Outer → Core)",
+      x = "Density Zone (0=Outer, Higher=Core)",
+      y = "Mean Percentage (%)"
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      legend.position = "right"
+    )
+  
+  # 合并
+  p_combined <- p1 / p2 + plot_layout(heights = c(2, 1))
+  
+  return(p_combined)
+}
+
+
+# ===================================================================
+# 辅助函数 6：生成统计摘要
+# ===================================================================
+
+generate_summary_statistics <- function(combined_data) {
+  
+  # 计算每种细胞类型在不同区域的富集情况
+  summary <- combined_data %>%
+    mutate(zone_numeric = as.numeric(gsub("Zone_", "", density_zone))) %>%
+    group_by(celltype_clean) %>%
+    summarise(
+      mean_pct_all = mean(percentage),
+      sd_pct_all = sd(percentage),
+      max_zone = density_zone[which.max(percentage)],
+      max_pct = max(percentage),
+      min_zone = density_zone[which.min(percentage)],
+      min_pct = min(percentage),
+      core_enrichment = mean(percentage[zone_numeric >= 3]) - mean(percentage[zone_numeric < 3]),
+      n_samples = length(unique(sample)),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(core_enrichment))
+  
+  return(summary)
+}
+
+
+# ===================================================================
+# 辅助函数：%||% 操作符
+# ===================================================================
+if (!exists("%||%")) {
+  `%||%` <- function(a, b) {
+    if (is.null(a)) b else a
+  }
 }

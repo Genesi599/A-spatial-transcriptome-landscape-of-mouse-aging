@@ -55,7 +55,7 @@ main <- function() {
   # 6. 绘图
   plot_isoheight_all(seurat_obj, samples_to_plot, CONFIG)
   plot_spatial_gradient(seurat_obj, samples_to_plot, CONFIG)
-  plot_celltype_analysis(seurat_obj, samples_to_plot, CONFIG)
+  analyze_celltype_niche(seurat_obj, samples_to_plot, CONFIG)
   
   # 7. 保存结果
   save_results(seurat_obj, CONFIG)
