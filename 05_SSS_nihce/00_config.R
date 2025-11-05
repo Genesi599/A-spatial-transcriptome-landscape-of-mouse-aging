@@ -30,7 +30,7 @@ CONFIG <- list(
   ),
   
   # ===== 调试参数 =====
-  debug_mode = TRUE,
+  debug_mode = FALSE,
   debug_sample_limit = 3,
   save_full_object = FALSE,
   
