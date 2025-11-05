@@ -53,7 +53,7 @@ main <- function() {
   cat(sprintf("📋 将处理 %d 个样本\n\n", length(samples_to_plot)))
   
   # 6. 绘图
-  plot_isoheight_all(seurat_obj, samples_to_plot, CONFIG)
+  plot_isoheight(seurat_obj, samples_to_plot, CONFIG)
   plot_spatial_gradient(seurat_obj, samples_to_plot, CONFIG)
   analyze_celltype_niche(seurat_obj, samples_to_plot, CONFIG)
   
