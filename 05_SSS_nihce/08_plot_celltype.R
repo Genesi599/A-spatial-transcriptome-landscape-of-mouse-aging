@@ -481,7 +481,7 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
 
 
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（统一配色版）
+# 辅助函数 2：绘制细胞类型+密度叠加图（等高线带颜色版）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
@@ -525,6 +525,13 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   names(zone_labels) <- zone_density_ranges$density_zone
   
+  # 计算等高线的具体数值（对应zone边界）
+  contour_breaks <- seq(0, 1, length.out = n_zones + 1)
+  
+  # 为每个等高线分配对应的zone颜色
+  # 等高线代表zone的边界，使用高密度一侧的zone颜色
+  contour_colors <- zone_colors[zone_levels]
+  
   # 绘图
   p <- ggplot() +
     # 1. Zone区域填充（底层，半透明背景）
@@ -551,22 +558,37 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     new_scale_fill() +
     
-    # 2. 等高线（明显的边界线）
+    # 2. 等高线（使用zone颜色）
+    # 白色外轮廓
     geom_contour(
       data = density_data$grid,
       aes(x = col, y = row, z = density_norm),
       color = "white",
-      linewidth = 1.5,
-      bins = n_zones
+      linewidth = 2.0,
+      breaks = contour_breaks
     ) +
+    # 彩色内线（按密度值映射颜色）
     geom_contour(
       data = density_data$grid,
-      aes(x = col, y = row, z = density_norm),
-      color = "black",
-      linewidth = 1.0,
-      bins = n_zones,
-      alpha = 0.6
+      aes(x = col, y = row, z = density_norm, color = after_stat(level)),
+      linewidth = 1.2,
+      breaks = contour_breaks
     ) +
+    scale_color_gradientn(
+      colors = rev(zone_colors),  # 反转颜色，使高密度对应深红色
+      values = scales::rescale(contour_breaks),
+      name = "Density Level",
+      breaks = contour_breaks[c(1, ceiling(length(contour_breaks)/2), length(contour_breaks))],
+      labels = sprintf("%.2f", contour_breaks[c(1, ceiling(length(contour_breaks)/2), length(contour_breaks))]),
+      guide = guide_colorbar(
+        order = 2,
+        barwidth = 1,
+        barheight = 8,
+        title.position = "top",
+        title.hjust = 0.5
+      )
+    ) +
+    new_scale_color() +
     
     # 3. 细胞类型点
     geom_point(
@@ -582,7 +604,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       values = celltype_colors,
       name = "Cell Type",
       guide = guide_legend(
-        order = 2,
+        order = 3,
         override.aes = list(size = 4, alpha = 1, stroke = 0.5),
         title.position = "top",
         title.hjust = 0.5,
@@ -596,7 +618,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     coord_fixed(ratio = 1) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = "Background = Density zones (Zone_0=Core/High, Higher number=Outer/Low) | Lines = Boundaries | Points = Cell types"
+      subtitle = "Background = Density zones (Zone_0=Core/High) | Colored lines = Zone boundaries | Points = Cell types"
     ) +
     theme_void() +
     theme(
