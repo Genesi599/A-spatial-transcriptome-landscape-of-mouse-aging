@@ -1,6 +1,6 @@
 # ===================================================================
 # 08_plot_celltype.R
-# 细胞类型 + 等高线分析完整工作流
+# 细胞类型 + 等高线分析完整工作流（修复版）
 # Author: Assistant
 # Date: 2025-11-05
 # ===================================================================
@@ -194,10 +194,10 @@ analyze_celltype_niche <- function(
         next
       }
       
-      # 合并密度信息
+      # 合并密度信息到df
       df <- df %>%
         left_join(
-          density_data$spot_zones %>% select(col, row, density_zone),
+          density_data$spot_zones %>% select(col, row, density_zone, density_value),
           by = c("col", "row")
         )
       
@@ -224,7 +224,7 @@ analyze_celltype_niche <- function(
       cat(sprintf("   ✅ 密度分区完成，共 %d 个区域\n", 
                   length(unique(zone_composition$density_zone))))
       
-      # 打印每个zone的统计
+      # 打印每个zone的统计（修复：使用已合并density_value的df）
       zone_stats <- df %>%
         filter(!is.na(density_zone)) %>%
         group_by(density_zone) %>%
@@ -451,8 +451,6 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
   
   # 检查是否有NA，如果有，使用最近邻方法填充
   if (any(is.na(spot_zones$density_zone))) {
-    cat("   ⚠️  检测到NA，使用最近邻方法填充...\n")
-    
     # 对有NA的点，使用KNN方法分配
     na_spots <- which(is.na(spot_zones$density_zone))
     
@@ -511,7 +509,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       mean_density = mean(density_norm, na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    arrange(desc(mean_density))  # 按密度从高到低排序
+    arrange(desc(mean_density))
   
   # 为zone创建带密度信息的标签
   zone_labels <- zone_density_ranges %>%
@@ -528,9 +526,8 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   # 计算等高线的具体数值（对应zone边界）
   contour_breaks <- seq(0, 1, length.out = n_zones + 1)
   
-  # 为每个等高线分配对应的zone颜色
-  # 等高线代表zone的边界，使用高密度一侧的zone颜色
-  contour_colors <- zone_colors[zone_levels]
+  # 为等高线创建颜色映射数据
+  contour_data <- density_data$grid
   
   # 绘图
   p <- ggplot() +
@@ -538,12 +535,12 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     geom_tile(
       data = density_data$grid,
       aes(x = col, y = row, fill = density_zone),
-      alpha = 0.4
+      alpha = 0.35
     ) +
     scale_fill_manual(
       values = zone_colors,
       labels = zone_labels,
-      name = "Density Zones\n(Normalized Range)\nZone_0=Core",
+      name = "Density Zones & Contour Lines\n(Normalized Range, Zone_0=Core)",
       breaks = zone_levels,
       guide = guide_legend(
         order = 1,
@@ -558,39 +555,47 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     new_scale_fill() +
     
-    # 2. 等高线（使用zone颜色）
-    # 白色外轮廓
+    # 2. 白色边框增强可见度（底层）
     geom_contour(
       data = density_data$grid,
       aes(x = col, y = row, z = density_norm),
       color = "white",
-      linewidth = 2.0,
-      breaks = contour_breaks
+      linewidth = 2.2,
+      breaks = contour_breaks,
+      alpha = 0.5
     ) +
-    # 彩色内线（按密度值映射颜色）
-    geom_contour(
-      data = density_data$grid,
-      aes(x = col, y = row, z = density_norm, color = after_stat(level)),
-      linewidth = 1.2,
-      breaks = contour_breaks
-    ) +
-    scale_color_gradientn(
-      colors = rev(zone_colors),  # 反转颜色，使高密度对应深红色
-      values = scales::rescale(contour_breaks),
-      name = "Density Level",
-      breaks = contour_breaks[c(1, ceiling(length(contour_breaks)/2), length(contour_breaks))],
-      labels = sprintf("%.2f", contour_breaks[c(1, ceiling(length(contour_breaks)/2), length(contour_breaks))]),
-      guide = guide_colorbar(
-        order = 2,
-        barwidth = 1,
-        barheight = 8,
-        title.position = "top",
-        title.hjust = 0.5
-      )
-    ) +
-    new_scale_color() +
     
-    # 3. 细胞类型点
+    # 3. 等高线（使用与zone一致的颜色）
+    # 为每个zone边界绘制对应颜色的等高线
+    {
+      contour_layers <- list()
+      for (i in 1:length(contour_breaks)) {
+        # 计算该等高线对应的zone
+        # contour_breaks[i] 是边界值，需要找到它分隔的两个zone中密度较高的那个
+        if (i == 1) {
+          # 最低边界，对应最外围zone
+          zone_idx <- n_zones - 1
+        } else {
+          # 其他边界，对应较高密度一侧的zone
+          zone_idx <- n_zones - i + 1
+        }
+        
+        zone_name <- sprintf("Zone_%d", zone_idx)
+        zone_color <- zone_colors[zone_name]
+        
+        contour_layers[[i]] <- geom_contour(
+          data = contour_data,
+          aes(x = col, y = row, z = density_norm),
+          breaks = contour_breaks[i],
+          color = zone_color,
+          linewidth = 1.5,
+          alpha = 0.9
+        )
+      }
+      contour_layers
+    } +
+    
+    # 4. 细胞类型点
     geom_point(
       data = df %>% filter(!is.na(density_zone)),
       aes(x = col, y = row, fill = celltype_clean),
@@ -604,7 +609,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       values = celltype_colors,
       name = "Cell Type",
       guide = guide_legend(
-        order = 3,
+        order = 2,
         override.aes = list(size = 4, alpha = 1, stroke = 0.5),
         title.position = "top",
         title.hjust = 0.5,
@@ -618,7 +623,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     coord_fixed(ratio = 1) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = "Background = Density zones (Zone_0=Core/High) | Colored lines = Zone boundaries | Points = Cell types"
+      subtitle = "Background & contour lines = Density zones (same colors, Zone_0=Core/High) | Points = Cell types"
     ) +
     theme_void() +
     theme(
