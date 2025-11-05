@@ -221,7 +221,7 @@ cat(sprintf("✅ 距离范围: %.2f ~ %.2f\n",
 # -----------------------------
 # 10. 绘图配置
 # -----------------------------
-DEBUG_MODE <- FALSE  # 改为 FALSE 绘制所有样本
+DEBUG_MODE <- TRUE  # 改为 FALSE 绘制所有样本
 DEBUG_SAMPLE_LIMIT <- 3
 
 samples <- unique(seurat_obj$orig.ident)
@@ -487,6 +487,293 @@ for (i in seq_along(samples_to_plot)) {
 cat("\n✅ 所有空间图绘制完成！\n")
 cat("   方向已与 Isoheight 图保持一致（Y 轴反转）\n")
 
+
+# -----------------------------
+# 13. 绘制细胞类型 + 等高线叠加图
+# -----------------------------
+cat("\n🎨 绘制细胞类型 + 等高线叠加图...\n")
+
+# 检查 celltype 列是否存在
+if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
+  cat("⚠️ 警告：未找到 'celltype' 列，跳过细胞类型图绘制\n")
+} else {
+  cat("✅ 检测到 celltype 列\n")
+  
+  # 查看细胞类型统计
+  celltype_counts <- table(seurat_obj$celltype)
+  cat(sprintf("✅ 共有 %d 种细胞类型：\n", length(celltype_counts)))
+  print(celltype_counts)
+  
+  # 生成细胞类型颜色方案
+  n_celltypes <- length(unique(seurat_obj$celltype))
+  
+  # 使用更丰富的调色板
+  if (n_celltypes <= 8) {
+    celltype_colors <- brewer.pal(max(3, n_celltypes), "Set2")
+  } else if (n_celltypes <= 12) {
+    celltype_colors <- brewer.pal(n_celltypes, "Set3")
+  } else {
+    # 组合多个调色板
+    celltype_colors <- c(
+      brewer.pal(9, "Set1"),
+      brewer.pal(8, "Set2"),
+      brewer.pal(12, "Set3")
+    )[1:n_celltypes]
+  }
+  
+  names(celltype_colors) <- sort(unique(seurat_obj$celltype))
+  
+  # 为每个样本绘制图
+  for (i in seq_along(samples_to_plot)) {
+    sample_id <- samples_to_plot[i]
+    cat(sprintf("[%d/%d] %s\n", i, length(samples_to_plot), sample_id))
+    
+    seurat_subset <- tryCatch(
+      subset(seurat_obj, subset = orig.ident == sample_id),
+      error = function(e) seurat_obj[, seurat_obj$orig.ident == sample_id]
+    )
+    
+    safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+    
+    # ============================================
+    # 方法1：使用 celltype_isoheight_plot 函数
+    # ============================================
+    tryCatch({
+      # 为每种细胞类型创建布尔列
+      celltypes_in_sample <- unique(seurat_subset$celltype)
+      
+      # 只绘制样本中存在的细胞类型（最多显示前6种）
+      celltypes_to_plot <- head(celltypes_in_sample, 6)
+      
+      for (ct in celltypes_to_plot) {
+        col_name <- paste0("is_", make.names(ct))
+        seurat_subset@meta.data[[col_name]] <- seurat_subset$celltype == ct
+      }
+      
+      # 使用你原有的 celltype_isoheight_plot 函数
+      # 注意：这个函数需要 density_top 参数是一个布尔列
+      # 我们可以用 ClockGene_High 作为等高线背景
+      
+      p_celltype_iso <- celltype_isoheight_plot(
+        .data = seurat_subset,
+        density_top = ClockGene_High,  # 用高表达点生成等高线
+        col_bg = "gray92",
+        col_top = "transparent",  # 让高表达点透明，只显示等高线
+        col_isoheight = "black",  # 等高线用黑色
+        col_white_ratio = 0.25,
+        cols_fill_isoheight = c(
+          rep("white", 50),
+          colorRampPalette(brewer.pal(9, "YlOrRd")[2:5])(50)  # 淡化等高线颜色
+        ),
+        size_bg = 0.8,
+        size_top = 0,  # 不显示高表达点
+        nrow = 1
+      )
+      
+      # 保存基础等高线图
+      ggsave(
+        file.path(dirs$isoheight, sprintf("ClockGene_celltype_base_%s.pdf", safe_name)),
+        plot = p_celltype_iso,
+        width = 8, height = 8, dpi = 300
+      )
+      
+    }, error = function(e) {
+      cat(sprintf("   ⚠️ celltype_isoheight_plot 失败: %s\n", e$message))
+    })
+    
+    # ============================================
+    # 方法2：手动叠加（更灵活）
+    # ============================================
+    tryCatch({
+      # 获取坐标
+      coords <- GetTissueCoordinates(
+        seurat_subset,
+        cols = c("row", "col"),
+        scale = NULL
+      )
+      
+      if (!("row" %in% colnames(coords) && "col" %in% colnames(coords))) {
+        cat(sprintf("   ⚠️ 坐标列不完整，跳过\n"))
+        next
+      }
+      
+      # 合并数据
+      plot_data <- seurat_subset@meta.data %>%
+        rownames_to_column("barcode") %>%
+        left_join(coords %>% rownames_to_column("barcode"), by = "barcode")
+      
+      # 计算坐标范围
+      expand_margin <- 0.05
+      col_range <- range(plot_data$col, na.rm = TRUE)
+      row_range <- range(plot_data$row, na.rm = TRUE)
+      
+      col_expand <- diff(col_range) * expand_margin
+      row_expand <- diff(row_range) * expand_margin
+      
+      col_limits <- c(col_range[1] - col_expand, col_range[2] + col_expand)
+      row_limits <- c(row_range[1] - row_expand, row_range[2] + row_expand)
+      
+      # ============================================
+      # 生成等高线数据（使用 ClockGene_Distance）
+      # ============================================
+      # 过滤掉 NA 值
+      plot_data_clean <- plot_data %>%
+        filter(!is.na(col), !is.na(row), !is.na(ClockGene_Distance))
+      
+      # 使用 akima 包进行插值
+      if (nrow(plot_data_clean) >= 10) {
+        interp_result <- tryCatch({
+          akima::interp(
+            x = plot_data_clean$col,
+            y = plot_data_clean$row,
+            z = plot_data_clean$ClockGene_Distance,
+            nx = 200,  # 插值分辨率
+            ny = 200,
+            linear = FALSE,  # 使用样条插值
+            extrap = FALSE
+          )
+        }, error = function(e) {
+          cat(sprintf("   ⚠️ 插值失败: %s\n", e$message))
+          NULL
+        })
+        
+        if (!is.null(interp_result)) {
+          # 转换为 data.frame 用于 ggplot
+          contour_data <- expand.grid(
+            col = interp_result$x,
+            row = interp_result$y
+          )
+          contour_data$z <- as.vector(interp_result$z)
+          
+          # ============================================
+          # 绘制叠加图
+          # ============================================
+          p_overlay <- ggplot() +
+            # 1. 等高线填充（底层）
+            geom_contour_filled(
+              data = contour_data,
+              aes(x = col, y = row, z = z),
+              bins = 10,
+              alpha = 0.3  # 半透明
+            ) +
+            scale_fill_manual(
+              values = colorRampPalette(brewer.pal(9, "YlOrRd")[3:9])(11),
+              name = "Distance\n(Contour)",
+              guide = guide_legend(order = 1)
+            ) +
+            # 2. 新的填充比例尺用于细胞类型
+            new_scale_fill() +
+            # 3. 细胞类型点（顶层）
+            geom_point(
+              data = plot_data,
+              aes(x = col, y = row, fill = celltype),
+              shape = 21, size = 1.8, color = "white", stroke = 0.15,
+              alpha = 0.8
+            ) +
+            scale_fill_manual(
+              values = celltype_colors,
+              name = "Cell Type",
+              guide = guide_legend(
+                override.aes = list(size = 4, alpha = 1),
+                order = 2
+              )
+            ) +
+            # 4. 等高线线条
+            geom_contour(
+              data = contour_data,
+              aes(x = col, y = row, z = z),
+              color = "white",
+              linewidth = 0.3,
+              bins = 10,
+              alpha = 0.6
+            ) +
+            # 坐标设置
+            scale_x_continuous(
+              limits = col_limits,
+              expand = expansion(mult = 0.02)
+            ) +
+            scale_y_reverse(
+              limits = rev(row_limits),
+              expand = expansion(mult = 0.02)
+            ) +
+            coord_fixed(ratio = 1) +
+            # 主题
+            ggtitle(sprintf("Cell Types + Clock Gene Niche - %s", sample_id)) +
+            theme_void() +
+            theme(
+              plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+              legend.position = "right",
+              legend.title = element_text(size = 10, face = "bold"),
+              legend.text = element_text(size = 8),
+              legend.box = "vertical",
+              legend.spacing.y = unit(0.5, "cm"),
+              plot.margin = margin(10, 10, 10, 10)
+            )
+          
+          # 保存
+          ggsave(
+            file.path(dirs$isoheight, sprintf("ClockGene_celltype_overlay_%s.pdf", safe_name)),
+            plot = p_overlay,
+            width = 10, height = 8,
+            dpi = 300
+          )
+          
+          cat(sprintf("   ✅ 已保存: ClockGene_celltype_overlay_%s.pdf\n", safe_name))
+          
+          # ============================================
+          # 额外：纯细胞类型图（无等高线）
+          # ============================================
+          p_celltype_only <- ggplot(plot_data, aes(x = col, y = row)) +
+            geom_point(
+              aes(fill = celltype),
+              shape = 21, size = 2.5, color = "white", stroke = 0.1,
+              alpha = 0.9
+            ) +
+            scale_fill_manual(
+              values = celltype_colors,
+              name = "Cell Type",
+              guide = guide_legend(override.aes = list(size = 4))
+            ) +
+            scale_x_continuous(
+              limits = col_limits,
+              expand = expansion(mult = 0.02)
+            ) +
+            scale_y_reverse(
+              limits = rev(row_limits),
+              expand = expansion(mult = 0.02)
+            ) +
+            coord_fixed(ratio = 1) +
+            ggtitle(sprintf("Cell Type Distribution - %s", sample_id)) +
+            theme_void() +
+            theme(
+              plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+              legend.position = "right",
+              legend.title = element_text(size = 10, face = "bold"),
+              legend.text = element_text(size = 8),
+              plot.margin = margin(10, 10, 10, 10)
+            )
+          
+          ggsave(
+            file.path(dirs$spatial, sprintf("ClockGene_celltype_only_%s.pdf", safe_name)),
+            plot = p_celltype_only,
+            width = 10, height = 8,
+            dpi = 300
+          )
+          
+        }
+      } else {
+        cat(sprintf("   ⚠️ 数据点不足（%d < 10），跳过插值\n", nrow(plot_data_clean)))
+      }
+      
+    }, error = function(e) {
+      cat(sprintf("   ⚠️ 叠加图绘制失败: %s\n", e$message))
+    })
+  }
+  
+  cat("\n✅ 细胞类型图绘制完成！\n")
+  cat(sprintf("   - 等高线叠加图保存在: %s/ClockGene_celltype_overlay_*.pdf\n", dirs$isoheight))
+  cat(sprintf("   - 纯细胞类型图保存在: %s/ClockGene_celltype_only_*.pdf\n", dirs$spatial))
+}
 
 # -----------------------------
 # 14. 保存结果
