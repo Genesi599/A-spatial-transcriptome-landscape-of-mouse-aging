@@ -489,7 +489,7 @@ cat("   方向已与 Isoheight 图保持一致（Y 轴反转）\n")
 
 
 # -----------------------------
-# 13. 绘制细胞类型 + 等高线叠加图
+# 13. 绘制细胞类型 + 等高线叠加图 + 区域统计
 # -----------------------------
 cat("\n🎨 绘制细胞类型 + 等高线叠加图...\n")
 
@@ -498,6 +498,25 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
   cat("⚠️ 警告：未找到 'celltype' 列，跳过细胞类型图绘制\n")
 } else {
   cat("✅ 检测到 celltype 列\n")
+  
+  # ============================================
+  # 创建子目录结构
+  # ============================================
+  isoheight_subdirs <- list(
+    overlay = file.path(dirs$isoheight, "01_overlay_plots"),
+    celltype = file.path(dirs$isoheight, "02_celltype_only"),
+    composition = file.path(dirs$isoheight, "03_composition_stats"),
+    heatmaps = file.path(dirs$isoheight, "04_heatmaps"),
+    combined = file.path(dirs$isoheight, "05_combined_analysis")
+  )
+  
+  # 创建所有子目录
+  for (subdir in isoheight_subdirs) {
+    if (!dir.exists(subdir)) {
+      dir.create(subdir, recursive = TRUE)
+      cat(sprintf("   📁 创建目录: %s\n", basename(subdir)))
+    }
+  }
   
   # 查看细胞类型统计
   celltype_counts <- table(seurat_obj$celltype)
@@ -523,10 +542,13 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
   
   names(celltype_colors) <- sort(unique(seurat_obj$celltype))
   
+  # 创建统计结果列表
+  all_region_stats <- list()
+  
   # 为每个样本绘制图
   for (i in seq_along(samples_to_plot)) {
     sample_id <- samples_to_plot[i]
-    cat(sprintf("[%d/%d] %s\n", i, length(samples_to_plot), sample_id))
+    cat(sprintf("\n[%d/%d] 处理样本: %s\n", i, length(samples_to_plot), sample_id))
     
     seurat_subset <- tryCatch(
       subset(seurat_obj, subset = orig.ident == sample_id),
@@ -536,53 +558,7 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
     safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
     
     # ============================================
-    # 方法1：使用 celltype_isoheight_plot 函数
-    # ============================================
-    tryCatch({
-      # 为每种细胞类型创建布尔列
-      celltypes_in_sample <- unique(seurat_subset$celltype)
-      
-      # 只绘制样本中存在的细胞类型（最多显示前6种）
-      celltypes_to_plot <- head(celltypes_in_sample, 6)
-      
-      for (ct in celltypes_to_plot) {
-        col_name <- paste0("is_", make.names(ct))
-        seurat_subset@meta.data[[col_name]] <- seurat_subset$celltype == ct
-      }
-      
-      # 使用你原有的 celltype_isoheight_plot 函数
-      # 注意：这个函数需要 density_top 参数是一个布尔列
-      # 我们可以用 ClockGene_High 作为等高线背景
-      
-      p_celltype_iso <- celltype_isoheight_plot(
-        .data = seurat_subset,
-        density_top = ClockGene_High,  # 用高表达点生成等高线
-        col_bg = "gray92",
-        col_top = "transparent",  # 让高表达点透明，只显示等高线
-        col_isoheight = "black",  # 等高线用黑色
-        col_white_ratio = 0.25,
-        cols_fill_isoheight = c(
-          rep("white", 50),
-          colorRampPalette(brewer.pal(9, "YlOrRd")[2:5])(50)  # 淡化等高线颜色
-        ),
-        size_bg = 0.8,
-        size_top = 0,  # 不显示高表达点
-        nrow = 1
-      )
-      
-      # 保存基础等高线图
-      ggsave(
-        file.path(dirs$isoheight, sprintf("ClockGene_celltype_base_%s.pdf", safe_name)),
-        plot = p_celltype_iso,
-        width = 8, height = 8, dpi = 300
-      )
-      
-    }, error = function(e) {
-      cat(sprintf("   ⚠️ celltype_isoheight_plot 失败: %s\n", e$message))
-    })
-    
-    # ============================================
-    # 方法2：手动叠加（更灵活）
+    # 手动叠加（更灵活）
     # ============================================
     tryCatch({
       # 获取坐标
@@ -646,20 +622,68 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
           contour_data$z <- as.vector(interp_result$z)
           
           # ============================================
-          # 绘制叠加图
+          # 将细胞分配到不同的距离区间
+          # ============================================
+          # 定义距离区间（根据数据分布自动生成）
+          distance_breaks <- quantile(
+            plot_data_clean$ClockGene_Distance, 
+            probs = seq(0, 1, 0.2),  # 分成5个区间
+            na.rm = TRUE
+          )
+          
+          # 确保断点是唯一的
+          distance_breaks <- unique(distance_breaks)
+          
+          # 创建区间标签
+          plot_data_clean <- plot_data_clean %>%
+            mutate(
+              Distance_Zone = cut(
+                ClockGene_Distance,
+                breaks = distance_breaks,
+                labels = paste0("Zone", 1:(length(distance_breaks)-1)),
+                include.lowest = TRUE
+              )
+            )
+          
+          # 统计每个区间的细胞类型组成
+          region_stats <- plot_data_clean %>%
+            filter(!is.na(Distance_Zone), !is.na(celltype)) %>%
+            group_by(Distance_Zone, celltype) %>%
+            summarise(count = n(), .groups = "drop") %>%
+            group_by(Distance_Zone) %>%
+            mutate(
+              total = sum(count),
+              percentage = count / total * 100
+            ) %>%
+            ungroup() %>%
+            mutate(sample = sample_id)
+          
+          # 保存到总列表
+          all_region_stats[[sample_id]] <- region_stats
+          
+          # 打印统计信息
+          cat("\n📊 距离区间统计:\n")
+          cat(sprintf("  区间定义: %s\n", 
+                     paste(sprintf("%.2f", distance_breaks), collapse = " | ")))
+          print(region_stats %>% 
+                  select(Distance_Zone, celltype, count, percentage) %>%
+                  arrange(Distance_Zone, desc(percentage)))
+          
+          # ============================================
+          # 绘制叠加图（等高线更明显）
           # ============================================
           p_overlay <- ggplot() +
             # 1. 等高线填充（底层）
             geom_contour_filled(
               data = contour_data,
               aes(x = col, y = row, z = z),
-              bins = 10,
-              alpha = 0.3  # 半透明
+              bins = 8,  # 减少区间数使层次更清晰
+              alpha = 0.25
             ) +
             scale_fill_manual(
-              values = colorRampPalette(brewer.pal(9, "YlOrRd")[3:9])(11),
+              values = colorRampPalette(brewer.pal(9, "YlOrRd")[3:9])(9),
               name = "Distance\n(Contour)",
-              guide = guide_legend(order = 1)
+              guide = guide_legend(order = 1, override.aes = list(alpha = 0.6))
             ) +
             # 2. 新的填充比例尺用于细胞类型
             new_scale_fill() +
@@ -668,7 +692,7 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
               data = plot_data,
               aes(x = col, y = row, fill = celltype),
               shape = 21, size = 1.8, color = "white", stroke = 0.15,
-              alpha = 0.8
+              alpha = 0.85
             ) +
             scale_fill_manual(
               values = celltype_colors,
@@ -678,14 +702,14 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
                 order = 2
               )
             ) +
-            # 4. 等高线线条
+            # 4. 等高线线条（加粗加深）
             geom_contour(
               data = contour_data,
               aes(x = col, y = row, z = z),
-              color = "white",
-              linewidth = 0.3,
-              bins = 10,
-              alpha = 0.6
+              color = "black",  # 改为黑色
+              linewidth = 0.6,  # 加粗
+              bins = 8,
+              alpha = 0.8  # 增加不透明度
             ) +
             # 坐标设置
             scale_x_continuous(
@@ -710,15 +734,127 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
               plot.margin = margin(10, 10, 10, 10)
             )
           
-          # 保存
+          # 保存叠加图到子目录
           ggsave(
-            file.path(dirs$isoheight, sprintf("ClockGene_celltype_overlay_%s.pdf", safe_name)),
+            file.path(isoheight_subdirs$overlay, sprintf("overlay_%s.pdf", safe_name)),
             plot = p_overlay,
             width = 10, height = 8,
             dpi = 300
           )
           
-          cat(sprintf("   ✅ 已保存: ClockGene_celltype_overlay_%s.pdf\n", safe_name))
+          cat(sprintf("   ✅ 已保存叠加图: overlay_%s.pdf\n", safe_name))
+          
+          # ============================================
+          # 绘制区域细胞类型组成图
+          # ============================================
+          
+          # 1. 堆叠柱状图
+          p_composition_bar <- ggplot(region_stats, 
+                                      aes(x = Distance_Zone, y = percentage, fill = celltype)) +
+            geom_bar(stat = "identity", position = "stack", color = "white", size = 0.3) +
+            scale_fill_manual(values = celltype_colors, name = "Cell Type") +
+            labs(
+              title = sprintf("Cell Type Composition by Distance Zone - %s", sample_id),
+              subtitle = sprintf("Total cells: %d", sum(region_stats$count)),
+              x = "Distance Zone (Near → Far from Clock Gene High)",
+              y = "Percentage (%)"
+            ) +
+            theme_bw() +
+            theme(
+              plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+              plot.subtitle = element_text(hjust = 0.5, size = 10),
+              axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.position = "right"
+            )
+          
+          ggsave(
+            file.path(isoheight_subdirs$composition, sprintf("composition_bar_%s.pdf", safe_name)),
+            plot = p_composition_bar,
+            width = 10, height = 6,
+            dpi = 300
+          )
+          
+          # 2. 热图
+          composition_matrix <- region_stats %>%
+            select(Distance_Zone, celltype, percentage) %>%
+            pivot_wider(names_from = celltype, values_from = percentage, values_fill = 0)
+          
+          # 转换为矩阵
+          rownames_mat <- composition_matrix$Distance_Zone
+          composition_matrix <- as.matrix(composition_matrix[, -1])
+          rownames(composition_matrix) <- rownames_mat
+          
+          pdf(file.path(isoheight_subdirs$heatmaps, sprintf("composition_heatmap_%s.pdf", safe_name)),
+              width = 10, height = 6)
+          pheatmap(
+            composition_matrix,
+            cluster_rows = FALSE,
+            cluster_cols = TRUE,
+            color = colorRampPalette(c("white", "lightblue", "blue", "darkblue"))(100),
+            display_numbers = TRUE,
+            number_format = "%.1f",
+            fontsize_number = 8,
+            main = sprintf("Cell Type Composition (%) - %s", sample_id),
+            angle_col = 45
+          )
+          dev.off()
+          
+          # 3. 分面柱状图（每个细胞类型单独显示）
+          p_composition_facet <- ggplot(region_stats, 
+                                        aes(x = Distance_Zone, y = percentage, fill = celltype)) +
+            geom_bar(stat = "identity", show.legend = FALSE) +
+            geom_text(aes(label = sprintf("%.1f%%", percentage)), 
+                     vjust = -0.5, size = 3) +
+            scale_fill_manual(values = celltype_colors) +
+            facet_wrap(~celltype, scales = "free_y", ncol = 3) +
+            labs(
+              title = sprintf("Cell Type Distribution Across Distance Zones - %s", sample_id),
+              x = "Distance Zone",
+              y = "Percentage (%)"
+            ) +
+            theme_bw() +
+            theme(
+              plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+              strip.background = element_rect(fill = "lightgray"),
+              strip.text = element_text(face = "bold")
+            )
+          
+          ggsave(
+            file.path(isoheight_subdirs$composition, sprintf("composition_facet_%s.pdf", safe_name)),
+            plot = p_composition_facet,
+            width = 12, height = 8,
+            dpi = 300
+          )
+          
+          # 4. 细胞数量图
+          p_count <- ggplot(region_stats, 
+                           aes(x = Distance_Zone, y = count, fill = celltype)) +
+            geom_bar(stat = "identity", position = "dodge", color = "white", size = 0.3) +
+            geom_text(aes(label = count), 
+                     position = position_dodge(width = 0.9),
+                     vjust = -0.5, size = 3) +
+            scale_fill_manual(values = celltype_colors, name = "Cell Type") +
+            labs(
+              title = sprintf("Cell Count by Distance Zone - %s", sample_id),
+              x = "Distance Zone",
+              y = "Cell Count"
+            ) +
+            theme_bw() +
+            theme(
+              plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+              axis.text.x = element_text(angle = 45, hjust = 1),
+              legend.position = "right"
+            )
+          
+          ggsave(
+            file.path(isoheight_subdirs$composition, sprintf("cellcount_%s.pdf", safe_name)),
+            plot = p_count,
+            width = 10, height = 6,
+            dpi = 300
+          )
+          
+          cat(sprintf("   ✅ 已保存区域统计图 (4种类型)\n"))
           
           # ============================================
           # 额外：纯细胞类型图（无等高线）
@@ -754,7 +890,7 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
             )
           
           ggsave(
-            file.path(dirs$spatial, sprintf("ClockGene_celltype_only_%s.pdf", safe_name)),
+            file.path(isoheight_subdirs$celltype, sprintf("celltype_only_%s.pdf", safe_name)),
             plot = p_celltype_only,
             width = 10, height = 8,
             dpi = 300
@@ -766,13 +902,90 @@ if (!"celltype" %in% colnames(seurat_obj@meta.data)) {
       }
       
     }, error = function(e) {
-      cat(sprintf("   ⚠️ 叠加图绘制失败: %s\n", e$message))
+      cat(sprintf("   ⚠️ 图绘制失败: %s\n", e$message))
+      print(e)
     })
   }
   
-  cat("\n✅ 细胞类型图绘制完成！\n")
-  cat(sprintf("   - 等高线叠加图保存在: %s/ClockGene_celltype_overlay_*.pdf\n", dirs$isoheight))
-  cat(sprintf("   - 纯细胞类型图保存在: %s/ClockGene_celltype_only_*.pdf\n", dirs$spatial))
+  # ============================================
+  # 合并所有样本的统计结果
+  # ============================================
+  if (length(all_region_stats) > 0) {
+    cat("\n📊 生成跨样本统计...\n")
+    
+    combined_stats <- bind_rows(all_region_stats)
+    
+    # 保存统计表格到 combined 子目录
+    write.csv(
+      combined_stats,
+      file.path(isoheight_subdirs$combined, "celltype_composition_all_samples.csv"),
+      row.names = FALSE
+    )
+    
+    # 绘制跨样本比较图
+    p_combined <- ggplot(combined_stats, 
+                         aes(x = Distance_Zone, y = percentage, fill = celltype)) +
+      geom_bar(stat = "identity", position = "stack", color = "white", size = 0.2) +
+      scale_fill_manual(values = celltype_colors, name = "Cell Type") +
+      facet_wrap(~sample, ncol = 2) +
+      labs(
+        title = "Cell Type Composition by Distance Zone - All Samples",
+        x = "Distance Zone",
+        y = "Percentage (%)"
+      ) +
+      theme_bw() +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+        strip.background = element_rect(fill = "lightgray"),
+        strip.text = element_text(face = "bold"),
+        legend.position = "bottom"
+      )
+    
+    ggsave(
+      file.path(isoheight_subdirs$combined, "celltype_composition_all_samples.pdf"),
+      plot = p_combined,
+      width = 14, height = 10,
+      dpi = 300
+    )
+    
+    # 额外：生成区域-细胞类型热图（所有样本）
+    for (sample_id in names(all_region_stats)) {
+      sample_stats <- all_region_stats[[sample_id]]
+      
+      # 创建比例矩阵用于热图
+      perc_matrix <- sample_stats %>%
+        select(Distance_Zone, celltype, percentage) %>%
+        pivot_wider(names_from = celltype, values_from = percentage, values_fill = 0) %>%
+        column_to_rownames("Distance_Zone") %>%
+        as.matrix()
+      
+      # 创建计数矩阵
+      count_matrix <- sample_stats %>%
+        select(Distance_Zone, celltype, count) %>%
+        pivot_wider(names_from = celltype, values_from = count, values_fill = 0) %>%
+        column_to_rownames("Distance_Zone") %>%
+        as.matrix()
+      
+      # 保存详细统计表
+      write.csv(
+        sample_stats,
+        file.path(isoheight_subdirs$combined, sprintf("stats_%s.csv", gsub("[^[:alnum:]]", "_", sample_id))),
+        row.names = FALSE
+      )
+    }
+    
+    cat("   ✅ 跨样本统计完成\n")
+  }
+  
+  cat("\n✅ 细胞类型分析完成！\n")
+  cat("\n📁 文件保存位置：\n")
+  cat(sprintf("   📂 %s/\n", basename(dirs$isoheight)))
+  cat(sprintf("      ├─ 01_overlay_plots/        (等高线+细胞类型叠加图)\n"))
+  cat(sprintf("      ├─ 02_celltype_only/        (纯细胞类型分布图)\n"))
+  cat(sprintf("      ├─ 03_composition_stats/    (区域组成统计图)\n"))
+  cat(sprintf("      ├─ 04_heatmaps/             (组成热图)\n"))
+  cat(sprintf("      └─ 05_combined_analysis/    (跨样本分析+数据表)\n"))
 }
 
 # -----------------------------
