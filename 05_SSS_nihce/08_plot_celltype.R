@@ -9,30 +9,33 @@
 # 辅助函数 0：统一的颜色方案
 # ===================================================================
 
-#' 生成统一的zone颜色方案（10个区域）
-#'
-#' @param n_zones zone数量，默认10
-#' @return 命名的颜色向量
-get_zone_colors <- function(n_zones = 10) {
-  # Zone_0 = 核心（深红），Zone_9 = 外围（浅黄）
-  zone_colors <- colorRampPalette(c(
-    "#67001f",  # 深红（核心 Zone_0）
-    "#b2182b",
-    "#d6604d",
-    "#f4a582",
-    "#fddbc7",
-    "#d1e5f0",
-    "#92c5de",
-    "#4393c3",
-    "#2166ac",
-    "#053061"   # 深蓝（外围 Zone_9）
-  ))(n_zones)
+#' 生成统一的zone颜色方案（10个区域）  
+#'  
+#' @param n_zones zone数量，默认10  
+#' @return 命名的颜色向量  
+get_zone_colors <- function(n_zones = 10) {  
+  # ✅ Zone_0 = 核心（深红），Zone_9 = 外围（深蓝）  
+  # 从深红到深蓝的渐变  
+  zone_colors <- colorRampPalette(c(  
+    "#67001f",  # 深红（Zone_0，核心，高密度）  
+    "#b2182b",  
+    "#d6604d",  
+    "#f4a582",  
+    "#fddbc7",  
+    "#d1e5f0",  
+    "#92c5de",  
+    "#4393c3",  
+    "#2166ac",  
+    "#053061"   # 深蓝（Zone_9，外围，低密度）  
+  ))(n_zones)  
   
-  zone_names <- sprintf("Zone_%d", (n_zones - 1):0)
-  names(zone_colors) <- zone_names
+  # ✅ 修正：Zone_0 对应第一个颜色（深红）  
+  zone_names <- sprintf("Zone_%d", 0:(n_zones - 1))  
+  names(zone_colors) <- zone_names  
   
-  return(zone_colors)
-}
+  return(zone_colors)  
+}  
+
 
 
 #' 生成统一的细胞类型颜色
@@ -511,29 +514,28 @@ calculate_density_zones <- function(df, density_bins = 10, expand_margin = 0.05)
 
 
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（0.1等距切分，限制在切片范围）
+# 辅助函数 2：绘制细胞类型+密度叠加图（Zone用半透明纯色，无方框）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   # 获取zone信息
   n_zones <- length(unique(density_data$grid$density_zone))
-  zone_levels <- sort(unique(as.character(density_data$grid$density_zone)))
+  # 按 Zone_0, Zone_1, ..., Zone_9 排序
+  zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
   
   # 使用统一的颜色方案
   zone_colors <- get_zone_colors(n_zones)
   celltype_colors <- get_celltype_colors(unique(df$celltype_clean))
   
-  # =============================================
-  # 使用切片的实际范围（不扩展）
-  # =============================================
+  # 使用切片的实际范围
   col_limits <- density_data$col_range
   row_limits <- density_data$row_range
   
   cat(sprintf("   ✅ 绘图范围限制在切片: col [%.1f, %.1f], row [%.1f, %.1f]\n",
               col_limits[1], col_limits[2], row_limits[1], row_limits[2]))
   
-  # 计算每个zone的密度范围
+  # 计算每个zone的密度范围（按正确顺序排列）
   zone_density_ranges <- density_data$grid %>%
     group_by(density_zone) %>%
     summarise(
@@ -542,36 +544,32 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       mean_density = mean(density_norm, na.rm = TRUE),
       .groups = "drop"
     ) %>%
-    arrange(desc(mean_density))
+    mutate(density_zone = factor(density_zone, levels = zone_levels)) %>%
+    arrange(density_zone)
   
   # 为zone创建带密度信息的标签
   zone_labels <- zone_density_ranges %>%
     mutate(
-      zone_label = sprintf("%s\n(%.2f-%.2f)", 
+      zone_label = sprintf("%s (%.2f-%.2f)", 
                           density_zone, 
                           min_density, 
                           max_density)
     ) %>%
     pull(zone_label)
   
-  names(zone_labels) <- zone_density_ranges$density_zone
+  names(zone_labels) <- as.character(zone_density_ranges$density_zone)
   
-  # =============================================
   # 使用0.1等距边界绘制等高线
-  # =============================================
-  contour_breaks <- density_data$equal_breaks  # [0.0, 0.1, 0.2, ..., 1.0]
+  contour_breaks <- density_data$equal_breaks
   
   cat(sprintf("   ✅ 等高线边界（0.1等距，共%d条）:\n", length(contour_breaks)))
   for (i in seq_along(contour_breaks)) {
     cat(sprintf("      %.1f\n", contour_breaks[i]))
   }
   
-  # 为等高线创建颜色映射数据（只用切片范围内的）
   contour_data <- density_data$grid
   
-  # =============================================
   # 自动计算正方形大小
-  # =============================================
   df_filtered <- df %>% filter(!is.na(density_zone))
   
   if (nrow(df_filtered) > 10000) {
@@ -585,24 +583,24 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   median_dist <- median(nn_dist, na.rm = TRUE)
   square_size <- median_dist * 1.0
   
-  # =============================================
-  # 为每条等高线分配颜色
-  # =============================================
+  # 等高线颜色从低密度（蓝）到高密度（红）
   n_contours <- length(contour_breaks)
-  
-  # 使用渐变色（从低密度蓝色到高密度红色）
   contour_colors <- colorRampPalette(c(
-    "#3288BD",  # 蓝色 (0.0)
-    "#66C2A5",  # 青色 (0.2)
-    "#ABDDA4",  # 绿色 (0.4)
-    "#E6F598",  # 黄绿 (0.6)
-    "#FEE08B",  # 黄色 (0.7)
-    "#FDAE61",  # 橙色 (0.8)
-    "#F46D43",  # 橙红 (0.9)
-    "#D53E4F"   # 红色 (1.0)
+    "#053061",  # 深蓝 (0.0 - 低密度)
+    "#2166ac",
+    "#4393c3",
+    "#92c5de",
+    "#d1e5f0",
+    "#fddbc7",
+    "#f4a582",
+    "#d6604d",
+    "#b2182b",
+    "#67001f"   # 深红 (1.0 - 高密度)
   ))(n_contours)
   
+  # =============================================
   # 绘图
+  # =============================================
   p <- ggplot() +
     # =============================================
     # 1. 细胞类型正方形（底层）
@@ -629,21 +627,23 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     new_scale_fill() +
     
     # =============================================
-    # 2. Zone区域填充（中层）
+    # 2. Zone填充区域（半透明纯色，无边框）
     # =============================================
-    geom_tile(
+    # 使用 stat_contour_filled 创建填充区域
+    stat_contour_filled(
       data = contour_data,
-      aes(x = col, y = row, fill = density_zone),
-      alpha = 0.25
+      aes(x = col, y = row, z = density_norm, fill = after_stat(level)),
+      breaks = contour_breaks,
+      alpha = 0.3  # 半透明
     ) +
     scale_fill_manual(
       values = zone_colors,
       labels = zone_labels,
-      name = "Density Zones (0.1 intervals)\n(Zone_0=Core)",
+      name = "Density Zones (0.1 intervals)\n(Zone_0=Core Red → Zone_9=Outer Blue)",
       breaks = zone_levels,
       guide = guide_legend(
         order = 1,
-        override.aes = list(alpha = 0.7, size = 0),
+        override.aes = list(alpha = 0.7),
         title.position = "top",
         title.hjust = 0.5,
         label.position = "right",
@@ -654,7 +654,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     
     # =============================================
-    # 3. 等高线（顶层）
+    # 3. 等高线（顶层，细线）
     # =============================================
     {
       contour_layers <- list()
@@ -664,33 +664,33 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
           aes(x = col, y = row, z = density_norm),
           breaks = contour_breaks[i],
           color = contour_colors[i],
-          linewidth = 0.6,
-          alpha = 0.8
+          linewidth = 0.5,  # 更细的线
+          alpha = 0.7
         )
       }
       contour_layers
     } +
     
     # =============================================
-    # 坐标和主题（严格限制范围）
+    # 坐标和主题
     # =============================================
     scale_x_continuous(
       limits = col_limits, 
-      expand = c(0, 0)  # ✅ 不扩展
+      expand = c(0, 0)
     ) +
     scale_y_reverse(
       limits = rev(row_limits), 
-      expand = c(0, 0)  # ✅ 不扩展
+      expand = c(0, 0)
     ) +
     coord_fixed(
       ratio = 1,
-      xlim = col_limits,  # ✅ 强制限制
-      ylim = rev(row_limits),  # ✅ 强制限制
-      clip = "on"  # ✅ 裁剪超出范围的内容
+      xlim = col_limits,
+      ylim = rev(row_limits),
+      clip = "on"
     ) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (0.1 intervals) | Top = %d contour lines", 
+      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (transparent) | Top = %d contour lines", 
                         length(contour_breaks))
     ) +
     theme_void() +
@@ -710,8 +710,9 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   return(p)
 }
 
+
 # ===================================================================
-# 辅助函数 3：绘制区域组成柱状图（统一配色版）
+# 辅助函数 3：绘制区域组成柱状图（修正顺序）
 # ===================================================================
 
 plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
@@ -721,9 +722,10 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
   zone_colors <- get_zone_colors(n_zones)
   celltype_colors <- get_celltype_colors(unique(zone_composition$celltype_clean))
   
-  # 确保zone按顺序排列
+  # ✅ 确保zone按 Zone_0, Zone_1, ... 排序
+  zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
   zone_composition <- zone_composition %>%
-    mutate(density_zone = factor(density_zone, levels = names(zone_colors)))
+    mutate(density_zone = factor(density_zone, levels = zone_levels))
   
   # 图1：细胞类型组成堆叠柱状图
   p1 <- ggplot(zone_composition, aes(x = density_zone, y = percentage, fill = celltype_clean)) +
@@ -732,7 +734,7 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
     labs(
       title = sprintf("Cell Type Composition by Density Zone - %s", sample_id),
-      x = "Density Zone (0=Core/High, Higher=Outer/Low)",
+      x = "Density Zone (Zone_0=Core/High → Higher=Outer/Low)",
       y = "Percentage (%)"
     ) +
     theme_classic() +
@@ -745,7 +747,7 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
       legend.text = element_text(size = 9)
     )
   
-  # 图2：Zone的spot数量（使用统一的zone颜色）
+  # 图2：Zone的spot数量
   zone_totals <- zone_composition %>%
     group_by(density_zone) %>%
     summarise(total = sum(count), .groups = "drop")
@@ -757,7 +759,7 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
     scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
     labs(
       title = "Total Spots per Density Zone",
-      x = "Density Zone (0=Core → Higher=Outer)",
+      x = "Density Zone (Zone_0=Core → Higher=Outer)",
       y = "Count"
     ) +
     theme_classic() +
@@ -775,7 +777,7 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
 
 
 # ===================================================================
-# 辅助函数 4：绘制合并热图（统一配色版）
+# 辅助函数 4：绘制合并热图（修正顺序）
 # ===================================================================
 
 plot_combined_heatmap <- function(combined_data, CONFIG) {
@@ -790,10 +792,10 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
       .groups = "drop"
     )
   
-  # 确保zone按顺序排列
+  # ✅ 确保zone按 Zone_0, Zone_1, ... 排序
   n_zones <- length(unique(heatmap_data$density_zone))
   zone_colors <- get_zone_colors(n_zones)
-  zone_levels <- names(zone_colors)
+  zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
   
   heatmap_data <- heatmap_data %>%
     mutate(density_zone = factor(density_zone, levels = zone_levels))
@@ -816,7 +818,7 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
     labs(
       title = "Cell Type Composition Across Density Zones (All Samples)",
       subtitle = sprintf("Averaged across %d samples", length(unique(combined_data$sample))),
-      x = "Density Zone (0=Core/High → Higher=Outer/Low)",
+      x = "Density Zone (Zone_0=Core/High → Higher=Outer/Low)",
       y = "Cell Type"
     ) +
     theme_minimal() +
@@ -857,7 +859,7 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
 
 
 # ===================================================================
-# 辅助函数 5：绘制综合分析图（统一配色版）
+# 辅助函数 5：绘制综合分析图（修正顺序）
 # ===================================================================
 
 plot_combined_analysis <- function(combined_data, CONFIG) {
@@ -865,7 +867,8 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
   # 获取统一的颜色方案
   n_zones <- length(unique(combined_data$density_zone))
   zone_colors <- get_zone_colors(n_zones)
-  zone_levels <- names(zone_colors)
+  # ✅ 按 Zone_0, Zone_1, ... 排序
+  zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
   celltype_colors <- get_celltype_colors(unique(combined_data$celltype_clean))
   
   # 确保zone按顺序排列
@@ -875,7 +878,7 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
       zone_numeric = as.numeric(gsub("Zone_", "", density_zone))
     )
   
-  # 1. 箱线图：每个区域的细胞类型比例分布
+  # 1. 箱线图
   p1 <- ggplot(combined_data, aes(x = density_zone, y = percentage, fill = density_zone)) +
     geom_boxplot(alpha = 0.8, outlier.shape = 16, outlier.size = 1.5, color = "gray30", linewidth = 0.5) +
     scale_fill_manual(values = zone_colors, guide = "none") +
@@ -883,7 +886,7 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
     labs(
       title = "Cell Type Percentage Distribution by Density Zone",
       subtitle = sprintf("Data from %d samples", length(unique(combined_data$sample))),
-      x = "Density Zone (0=Core/High → Higher=Outer/Low)",
+      x = "Density Zone (Zone_0=Core/High → Higher=Outer/Low)",
       y = "Percentage (%)"
     ) +
     theme_bw() +
@@ -898,7 +901,7 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
       panel.grid.minor = element_blank()
     )
   
-  # 2. 趋势图：核心到外围的变化
+  # 2. 趋势图
   trend_data <- combined_data %>%
     group_by(celltype_clean, zone_numeric, density_zone) %>%
     summarise(
@@ -924,7 +927,7 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
     labs(
       title = "Cell Type Enrichment Trend Across Density Zones",
       subtitle = "Mean ± SE across all samples",
-      x = "Density Zone (0=Core/High → Higher=Outer/Low)",
+      x = "Density Zone (Zone_0=Core/High → Higher=Outer/Low)",
       y = "Mean Percentage (%)"
     ) +
     theme_classic() +
