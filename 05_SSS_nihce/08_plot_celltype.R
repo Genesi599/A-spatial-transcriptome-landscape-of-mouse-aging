@@ -9,25 +9,26 @@
 # 辅助函数 0：统一的颜色方案
 # ===================================================================
 
-#' 生成统一的zone颜色方案（密度从高到低）
+#' 生成统一的zone颜色方案（10个区域）
 #'
-#' @param n_zones zone数量
+#' @param n_zones zone数量，默认10
 #' @return 命名的颜色向量
-get_zone_colors <- function(n_zones = 5) {
-  # Zone_0 = 核心（深红），Zone_4 = 外围（浅黄）
+get_zone_colors <- function(n_zones = 10) {
+  # Zone_0 = 核心（深红），Zone_9 = 外围（浅黄）
   zone_colors <- colorRampPalette(c(
-    "#800026",  # 深红（核心 Zone_0）
-    "#bd0026",
-    "#e31a1c",
-    "#fc4e2a",
-    "#fd8d3c",
-    "#feb24c",
-    "#fed976",
-    "#ffeda0",
-    "#ffffcc"   # 浅黄（外围 Zone_n-1）
+    "#67001f",  # 深红（核心 Zone_0）
+    "#b2182b",
+    "#d6604d",
+    "#f4a582",
+    "#fddbc7",
+    "#d1e5f0",
+    "#92c5de",
+    "#4393c3",
+    "#2166ac",
+    "#053061"   # 深蓝（外围 Zone_9）
   ))(n_zones)
   
-  zone_names <- sprintf("Zone_%d", 0:(n_zones - 1))
+  zone_names <- sprintf("Zone_%d", (n_zones - 1):0)
   names(zone_colors) <- zone_names
   
   return(zone_colors)
@@ -373,10 +374,10 @@ analyze_celltype_niche <- function(
 
 
 # ===================================================================
-# 辅助函数 1：计算密度分区（修改版：反转zone序号）
+# 辅助函数 1：计算密度分区（0.1等距切分，10个区域）
 # ===================================================================
 
-calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) {
+calculate_density_zones <- function(df, density_bins = 10, expand_margin = 0.05) {
   
   # 只使用高表达点计算密度
   high_points <- df %>% filter(ClockGene_High)
@@ -386,15 +387,16 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
     return(NULL)
   }
   
-  # 计算坐标范围
+  # 计算坐标范围（不扩展，严格限制在切片范围内）
   col_range <- range(df$col, na.rm = TRUE)
   row_range <- range(df$row, na.rm = TRUE)
   
+  # 用于KDE计算的范围（稍微扩展以避免边界效应）
   col_expand <- diff(col_range) * expand_margin
   row_expand <- diff(row_range) * expand_margin
   
-  col_limits <- c(col_range[1] - col_expand, col_range[2] + col_expand)
-  row_limits <- c(row_range[1] - row_expand, row_range[2] + row_expand)
+  col_limits_kde <- c(col_range[1] - col_expand, col_range[2] + col_expand)
+  row_limits_kde <- c(row_range[1] - row_expand, row_range[2] + row_expand)
   
   # 使用 MASS::kde2d 计算密度
   kde_result <- tryCatch({
@@ -402,7 +404,7 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
       x = high_points$col,
       y = high_points$row,
       n = 200,
-      lims = c(col_limits, row_limits)
+      lims = c(col_limits_kde, row_limits_kde)
     )
   }, error = function(e) {
     warning(sprintf("密度估计失败: %s", e$message))
@@ -421,65 +423,95 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
   # 归一化密度
   density_df$density_norm <- density_df$density / max(density_df$density, na.rm = TRUE)
   
-  # 分级（反转：Zone_0 = 最高密度核心，Zone_n-1 = 最低密度外围）
+  # =============================================
+  # 只保留切片范围内的密度网格
+  # =============================================
+  density_df <- density_df %>%
+    filter(
+      col >= col_range[1] & col <= col_range[2],
+      row >= row_range[1] & row <= row_range[2]
+    )
+  
+  cat(sprintf("   ✅ 密度网格限制在切片范围: col [%.1f, %.1f], row [%.1f, %.1f]\n",
+              col_range[1], col_range[2], row_range[1], row_range[2]))
+  
+  # =============================================
+  # 使用0.1等距切分（10个区域）
+  # =============================================
+  equal_breaks <- seq(0, 1, by = 0.1)  # [0.0, 0.1, 0.2, ..., 0.9, 1.0]
+  
+  # 打印边界信息
+  cat(sprintf("   ✅ Zone边界（0.1等距切分，%d个区域）:\n", length(equal_breaks) - 1))
+  for (i in 1:(length(equal_breaks) - 1)) {
+    cat(sprintf("      Zone_%d: [%.1f, %.1f)\n", 
+                length(equal_breaks) - 1 - i, 
+                equal_breaks[i], 
+                equal_breaks[i + 1]))
+  }
+  
+  # 分级（反转：Zone_0 = 最高密度核心）
   density_df$density_zone <- cut(
     density_df$density_norm,
-    breaks = seq(0, 1, length.out = density_bins + 1),
-    labels = sprintf("Zone_%d", (density_bins - 1):0),  # 反转标签顺序
+    breaks = equal_breaks,
+    labels = sprintf("Zone_%d", (length(equal_breaks) - 2):0),  # Zone_9 到 Zone_0
     include.lowest = TRUE,
     right = TRUE
   )
   
-  # 为每个spot分配最近的密度区域（使用更可靠的方法）
-  # 创建一个密度网格的索引
+  # 为每个spot分配最近的密度区域
   spot_zones <- df %>%
     select(col, row) %>%
     mutate(
-      # 找到最近的网格点
       col_idx = sapply(col, function(x) which.min(abs(kde_result$x - x))),
       row_idx = sapply(row, function(y) which.min(abs(kde_result$y - y)))
     ) %>%
     rowwise() %>%
     mutate(
-      # 根据索引获取密度zone
-      grid_idx = (col_idx - 1) * length(kde_result$y) + row_idx,
-      density_zone = density_df$density_zone[grid_idx],
-      density_value = density_df$density_norm[grid_idx]
+      # 计算在原始网格中的位置
+      grid_col = kde_result$x[col_idx],
+      grid_row = kde_result$y[row_idx]
     ) %>%
     ungroup() %>%
-    select(col, row, density_zone, density_value)
+    left_join(
+      density_df %>% select(col, row, density_zone, density_norm),
+      by = c("grid_col" = "col", "grid_row" = "row")
+    ) %>%
+    select(col, row, density_zone, density_value = density_norm)
   
-  # 检查是否有NA，如果有，使用最近邻方法填充
+  # 检查NA并填充（只在切片范围内）
   if (any(is.na(spot_zones$density_zone))) {
-    # 对有NA的点，使用KNN方法分配
     na_spots <- which(is.na(spot_zones$density_zone))
     
     for (idx in na_spots) {
       spot_col <- spot_zones$col[idx]
       spot_row <- spot_zones$row[idx]
       
-      # 计算到所有网格点的距离
+      # 只在切片范围内的网格点中查找
       distances <- sqrt((density_df$col - spot_col)^2 + (density_df$row - spot_row)^2)
-      
-      # 找到最近的非NA点
       valid_idx <- which(!is.na(density_df$density_zone))
-      nearest_valid <- valid_idx[which.min(distances[valid_idx])]
       
-      spot_zones$density_zone[idx] <- density_df$density_zone[nearest_valid]
-      spot_zones$density_value[idx] <- density_df$density_norm[nearest_valid]
+      if (length(valid_idx) > 0) {
+        nearest_valid <- valid_idx[which.min(distances[valid_idx])]
+        spot_zones$density_zone[idx] <- density_df$density_zone[nearest_valid]
+        spot_zones$density_value[idx] <- density_df$density_norm[nearest_valid]
+      }
     }
   }
   
   return(list(
     grid = density_df,
     spot_zones = spot_zones,
-    kde_result = kde_result
+    kde_result = kde_result,
+    equal_breaks = equal_breaks,
+    col_range = col_range,  # ✅ 返回切片范围
+    row_range = row_range   # ✅ 返回切片范围
   ))
 }
 
 
+
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（10%分位数等高线）
+# 辅助函数 2：绘制细胞类型+密度叠加图（0.1等距切分，限制在切片范围）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
@@ -492,13 +524,14 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   zone_colors <- get_zone_colors(n_zones)
   celltype_colors <- get_celltype_colors(unique(df$celltype_clean))
   
-  # 坐标范围
-  col_range <- range(df$col, na.rm = TRUE)
-  row_range <- range(df$row, na.rm = TRUE)
-  expand <- CONFIG$plot$expand_margin %||% 0.05
+  # =============================================
+  # 使用切片的实际范围（不扩展）
+  # =============================================
+  col_limits <- density_data$col_range
+  row_limits <- density_data$row_range
   
-  col_limits <- col_range + c(-1, 1) * diff(col_range) * expand
-  row_limits <- row_range + c(-1, 1) * diff(row_range) * expand
+  cat(sprintf("   ✅ 绘图范围限制在切片: col [%.1f, %.1f], row [%.1f, %.1f]\n",
+              col_limits[1], col_limits[2], row_limits[1], row_limits[2]))
   
   # 计算每个zone的密度范围
   zone_density_ranges <- density_data$grid %>%
@@ -524,32 +557,23 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   names(zone_labels) <- zone_density_ranges$density_zone
   
   # =============================================
-  # 使用10%分位数划分等高线（与原始等高线图一致）
+  # 使用0.1等距边界绘制等高线
   # =============================================
-  # 计算密度值的10%分位数
-  density_values <- density_data$grid$density_norm
-  percentile_breaks <- quantile(density_values, probs = seq(0, 1, by = 0.1), na.rm = TRUE)
+  contour_breaks <- density_data$equal_breaks  # [0.0, 0.1, 0.2, ..., 1.0]
   
-  # 去重并排序（有些分位数可能重复）
-  contour_breaks <- unique(percentile_breaks)
-  contour_breaks <- sort(contour_breaks)
-  
-  cat(sprintf("   ✅ 等高线分位数 (10%% intervals):\n"))
+  cat(sprintf("   ✅ 等高线边界（0.1等距，共%d条）:\n", length(contour_breaks)))
   for (i in seq_along(contour_breaks)) {
-    pct <- (i - 1) * 10
-    cat(sprintf("      %d%%: %.3f\n", pct, contour_breaks[i]))
+    cat(sprintf("      %.1f\n", contour_breaks[i]))
   }
   
-  # 为等高线创建颜色映射数据
+  # 为等高线创建颜色映射数据（只用切片范围内的）
   contour_data <- density_data$grid
   
   # =============================================
-  # 自动计算正方形大小（每个点一个正方形）
+  # 自动计算正方形大小
   # =============================================
   df_filtered <- df %>% filter(!is.na(density_zone))
   
-  # 计算最近邻距离来确定合适的正方形大小
-  # 使用采样以加快计算（如果细胞太多）
   if (nrow(df_filtered) > 10000) {
     sample_idx <- sample(nrow(df_filtered), 10000)
     coords_sample <- df_filtered[sample_idx, c("col", "row")]
@@ -557,25 +581,31 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     coords_sample <- df_filtered[, c("col", "row")]
   }
   
-  # 计算最近邻距离
-  nn_dist <- RANN::nn2(coords_sample, k = 2)$nn.dists[, 2]  # 第2列是最近邻距离
+  nn_dist <- RANN::nn2(coords_sample, k = 2)$nn.dists[, 2]
   median_dist <- median(nn_dist, na.rm = TRUE)
-  
-  # 正方形的边长应该等于最近邻距离，使其刚好无缝铺满
-  square_size <- median_dist * 1.0  # 可以微调这个系数（0.95-1.05）
+  square_size <- median_dist * 1.0
   
   # =============================================
-  # 为每条等高线分配颜色（基于密度值）
+  # 为每条等高线分配颜色
   # =============================================
-  # 将等高线位置映射到zone颜色
   n_contours <- length(contour_breaks)
-  contour_colors <- colorRampPalette(c("#3288BD", "#66C2A5", "#ABDDA4", "#E6F598", 
-                                        "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F"))(n_contours)
+  
+  # 使用渐变色（从低密度蓝色到高密度红色）
+  contour_colors <- colorRampPalette(c(
+    "#3288BD",  # 蓝色 (0.0)
+    "#66C2A5",  # 青色 (0.2)
+    "#ABDDA4",  # 绿色 (0.4)
+    "#E6F598",  # 黄绿 (0.6)
+    "#FEE08B",  # 黄色 (0.7)
+    "#FDAE61",  # 橙色 (0.8)
+    "#F46D43",  # 橙红 (0.9)
+    "#D53E4F"   # 红色 (1.0)
+  ))(n_contours)
   
   # 绘图
   p <- ggplot() +
     # =============================================
-    # 1. 细胞类型正方形（底层，每个点一个正方形）
+    # 1. 细胞类型正方形（底层）
     # =============================================
     geom_tile(
       data = df_filtered,
@@ -583,7 +613,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       width = square_size,
       height = square_size,
       alpha = 0.85,
-      color = NA  # 无描边
+      color = NA
     ) +
     scale_fill_manual(
       values = celltype_colors,
@@ -599,17 +629,17 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     new_scale_fill() +
     
     # =============================================
-    # 2. Zone区域填充（上层，半透明覆盖）
+    # 2. Zone区域填充（中层）
     # =============================================
     geom_tile(
-      data = density_data$grid,
+      data = contour_data,
       aes(x = col, y = row, fill = density_zone),
-      alpha = 0.25  # 更透明一些，可以看到下面的细胞类型
+      alpha = 0.25
     ) +
     scale_fill_manual(
       values = zone_colors,
       labels = zone_labels,
-      name = "Density Zones (10% Percentiles)\n(Normalized Range, Zone_0=Core)",
+      name = "Density Zones (0.1 intervals)\n(Zone_0=Core)",
       breaks = zone_levels,
       guide = guide_legend(
         order = 1,
@@ -624,7 +654,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     
     # =============================================
-    # 3. 等高线（最上层，按10%分位数）
+    # 3. 等高线（顶层）
     # =============================================
     {
       contour_layers <- list()
@@ -634,22 +664,33 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
           aes(x = col, y = row, z = density_norm),
           breaks = contour_breaks[i],
           color = contour_colors[i],
-          linewidth = 0.6,  # ✅ 从 1.2 改为 0.6（更细）
-          alpha = 0.8       # ✅ 稍微降低透明度
+          linewidth = 0.6,
+          alpha = 0.8
         )
       }
       contour_layers
     } +
     
     # =============================================
-    # 坐标和主题
+    # 坐标和主题（严格限制范围）
     # =============================================
-    scale_x_continuous(limits = col_limits, expand = expansion(mult = 0.02)) +
-    scale_y_reverse(limits = rev(row_limits), expand = expansion(mult = 0.02)) +
-    coord_fixed(ratio = 1) +
+    scale_x_continuous(
+      limits = col_limits, 
+      expand = c(0, 0)  # ✅ 不扩展
+    ) +
+    scale_y_reverse(
+      limits = rev(row_limits), 
+      expand = c(0, 0)  # ✅ 不扩展
+    ) +
+    coord_fixed(
+      ratio = 1,
+      xlim = col_limits,  # ✅ 强制限制
+      ylim = rev(row_limits),  # ✅ 强制限制
+      clip = "on"  # ✅ 裁剪超出范围的内容
+    ) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = sprintf("Bottom = Cell types | Middle = Density zones | Top = Contour lines (10%% percentiles, %d lines)", 
+      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (0.1 intervals) | Top = %d contour lines", 
                         length(contour_breaks))
     ) +
     theme_void() +
