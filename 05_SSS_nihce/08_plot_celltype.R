@@ -514,7 +514,7 @@ calculate_density_zones <- function(df, density_bins = 10, expand_margin = 0.05)
 
 
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（修复条纹问题）
+# 辅助函数 2：绘制细胞类型+密度叠加图（修复网格线和图例格式）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
@@ -587,9 +587,13 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   median_dist <- median(nn_dist, na.rm = TRUE)
   square_size <- median_dist * 1.0
   
-  # ✅ 计算网格的 tile 大小
+  # ✅ 计算网格的 tile 大小（稍微放大以避免间隙）
   grid_col_step <- unique(diff(sort(unique(contour_data$col))))[1]
   grid_row_step <- unique(diff(sort(unique(contour_data$row))))[1]
+  
+  # 放大1.01倍避免网格线
+  grid_col_step <- grid_col_step * 1.01
+  grid_row_step <- grid_row_step * 1.01
   
   cat(sprintf("   📏 细胞正方形大小: %.3f\n", square_size))
   cat(sprintf("   📏 密度网格步长: col=%.3f, row=%.3f\n", grid_col_step, grid_row_step))
@@ -629,26 +633,27 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       name = "Cell Type",
       guide = guide_legend(
         order = 2,
-        override.aes = list(size = 3, alpha = 1),
+        override.aes = list(alpha = 1),  # 移除 size，使用正方形
         title.position = "top",
-        title.hjust = 0.5,
+        title.hjust = 0,  # ✅ 左对齐标题
+        label.hjust = 0,  # ✅ 左对齐标签
         ncol = 1,
-        keywidth = unit(1.2, "cm"),
-        keyheight = unit(0.8, "cm")
+        keywidth = unit(0.8, "cm"),   # ✅ 正方形：宽度
+        keyheight = unit(0.8, "cm")   # ✅ 正方形：高度
       )
     ) +
     new_scale_fill() +
     
     # =============================================
-    # 2. Zone填充区域（使用正确的网格 tile）
+    # 2. Zone填充区域（无网格线）
     # =============================================
     geom_tile(
       data = contour_data,
       aes(x = col, y = row, fill = density_zone),
-      width = grid_col_step,   # ✅ 使用网格步长
-      height = grid_row_step,  # ✅ 使用网格步长
+      width = grid_col_step,   # ✅ 放大1.01倍
+      height = grid_row_step,  # ✅ 放大1.01倍
       alpha = 0.3,
-      color = NA
+      color = NA  # ✅ 确保无边框
     ) +
     scale_fill_manual(
       values = zone_colors,
@@ -657,14 +662,13 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       breaks = zone_levels,
       guide = guide_legend(
         order = 1,
-        override.aes = list(alpha = 0.7, size = 3),  # ✅ 统一大小
+        override.aes = list(alpha = 0.7),  # 移除 size，使用正方形
         title.position = "top",
-        title.hjust = 0.5,
-        label.position = "right",
-        label.hjust = 0,
+        title.hjust = 0,  # ✅ 左对齐标题
+        label.hjust = 0,  # ✅ 左对齐标签
         ncol = 1,
-        keywidth = unit(1.2, "cm"),
-        keyheight = unit(0.8, "cm")
+        keywidth = unit(0.8, "cm"),   # ✅ 正方形：宽度
+        keyheight = unit(0.8, "cm")   # ✅ 正方形：高度
       )
     ) +
     
@@ -714,10 +718,11 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray30", margin = margin(b = 10)),
       legend.position = "right",
       legend.box = "vertical",
+      legend.box.just = "left",  # ✅ 图例框左对齐
       legend.spacing.y = unit(0.5, "cm"),
-      legend.title = element_text(size = 11, face = "bold"),
-      legend.text = element_text(size = 9, lineheight = 1.2),  # ✅ 统一字体大小
-      legend.key = element_rect(color = "gray70", linewidth = 0.3),
+      legend.title = element_text(size = 12, face = "bold", hjust = 0),  # ✅ 加大字体，左对齐
+      legend.text = element_text(size = 10, lineheight = 1.2, hjust = 0),  # ✅ 加大字体，左对齐
+      legend.key = element_rect(color = NA, fill = NA),  # ✅ 移除方框边框
       legend.background = element_rect(fill = "white", color = "gray80", linewidth = 0.5),
       plot.margin = margin(15, 15, 15, 15)
     )
