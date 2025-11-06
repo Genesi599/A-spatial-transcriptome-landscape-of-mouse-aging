@@ -484,9 +484,6 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
-  # 加载必要的包
-  require(ggforce)  # 用于 geom_regon (正多边形)
-  
   # 获取zone信息
   n_zones <- length(unique(density_data$grid$density_zone))
   zone_levels <- sort(unique(as.character(density_data$grid$density_zone)))
@@ -533,11 +530,11 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   contour_data <- density_data$grid
   
   # =============================================
-  # 自动计算六边形大小（每个点一个六边形）
+  # 自动计算正方形大小（每个点一个正方形）
   # =============================================
   df_filtered <- df %>% filter(!is.na(density_zone))
   
-  # 计算最近邻距离来确定合适的六边形大小
+  # 计算最近邻距离来确定合适的正方形大小
   # 使用采样以加快计算（如果细胞太多）
   if (nrow(df_filtered) > 10000) {
     sample_idx <- sample(nrow(df_filtered), 10000)
@@ -550,19 +547,19 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   nn_dist <- RANN::nn2(coords_sample, k = 2)$nn.dists[, 2]  # 第2列是最近邻距离
   median_dist <- median(nn_dist, na.rm = TRUE)
   
-  # 六边形的外接圆半径（从中心到顶点的距离）
-  # 设置为最近邻距离的一半，使六边形刚好无缝铺满
-  hex_radius <- median_dist * 0.58  # 0.58 是经验值，可以微调
+  # 正方形的边长应该等于最近邻距离，使其刚好无缝铺满
+  square_size <- median_dist * 1.0  # 可以微调这个系数（0.95-1.05）
   
   # 绘图
   p <- ggplot() +
     # =============================================
-    # 1. 细胞类型六边形（底层，每个点一个六边形）
+    # 1. 细胞类型正方形（底层，每个点一个正方形）
     # =============================================
-    ggforce::geom_regon(
+    geom_tile(
       data = df_filtered,
-      aes(x0 = col, y0 = row, fill = celltype_clean, 
-          sides = 6, angle = 0, r = hex_radius),
+      aes(x = col, y = row, fill = celltype_clean),
+      width = square_size,
+      height = square_size,
       alpha = 0.85,
       color = NA  # 无描边
     ) +
@@ -571,7 +568,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       name = "Cell Type",
       guide = guide_legend(
         order = 2,
-        override.aes = list(size = 4, alpha = 1, shape = 22),
+        override.aes = list(size = 4, alpha = 1),
         title.position = "top",
         title.hjust = 0.5,
         ncol = 1
@@ -605,19 +602,8 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     
     # =============================================
-    # 3. 等高线（最上层）
+    # 3. 等高线（最上层，无描边）
     # =============================================
-    # 白色边框增强可见度
-    geom_contour(
-      data = contour_data,
-      aes(x = col, y = row, z = density_norm),
-      color = "white",
-      linewidth = 2.2,
-      breaks = contour_breaks,
-      alpha = 0.5
-    ) +
-    
-    # 彩色等高线（与zone颜色一致）
     {
       contour_layers <- list()
       for (i in 1:length(contour_breaks)) {
@@ -651,7 +637,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     coord_fixed(ratio = 1) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = "Bottom layer = Cell types (hexagons) | Middle layer = Density zones (transparent) | Top layer = Contour lines (Zone_0=Core/High)"
+      subtitle = "Bottom layer = Cell types (squares) | Middle layer = Density zones (transparent) | Top layer = Contour lines (Zone_0=Core/High)"
     ) +
     theme_void() +
     theme(
