@@ -1,10 +1,10 @@
 # ===================================================================
-# 函数：绘制空间梯度图
+# 函数：绘制空间梯度图（正方形平铺版）
 # 作者：Assistant
 # 日期：2025-11-05
 # ===================================================================
 
-#' 绘制 Clock Gene Score 和 Distance 的空间梯度图
+#' 绘制 Clock Gene Score 和 Distance 的空间梯度图（正方形平铺）
 #'
 #' @param seurat_obj Seurat 对象，必须包含以下列：
 #'   - ClockGene_Score1: Clock基因评分
@@ -13,7 +13,6 @@
 #' @param samples_to_plot 字符向量，要绘制的样本ID列表
 #' @param CONFIG 配置列表，必须包含：
 #'   - dirs$spatial: 输出目录路径
-#'   - plot$point_size_scatter: 点的大小
 #'   - plot$expand_margin: 边界扩展比例
 #'   - plot$dpi: 图形分辨率
 #'
@@ -27,7 +26,7 @@ plot_spatial_gradient <- function(seurat_obj, samples_to_plot, CONFIG) {
   # ========================================
   # 1. 参数验证
   # ========================================
-  cat("\n🔥 绘制空间梯度图（匹配 Isoheight 坐标）...\n")
+  cat("\n🔥 绘制空间梯度图（正方形平铺，匹配 Isoheight 坐标）...\n")
   
   # 检查必需的列
   required_cols <- c("ClockGene_Score1", "ClockGene_Distance", "orig.ident")
@@ -49,7 +48,6 @@ plot_spatial_gradient <- function(seurat_obj, samples_to_plot, CONFIG) {
   }
   
   # 提取配置参数（设置默认值）
-  point_size <- CONFIG$plot$point_size_scatter %||% 2.5
   expand_margin <- CONFIG$plot$expand_margin %||% 0.05
   dpi <- CONFIG$plot$dpi %||% 300
   
@@ -129,30 +127,42 @@ plot_spatial_gradient <- function(seurat_obj, samples_to_plot, CONFIG) {
       }
       
       # --------------------------------
-      # 3.4 计算坐标范围
+      # 3.4 自动计算正方形大小
+      # --------------------------------
+      if (nrow(plot_data) > 10000) {
+        sample_idx <- sample(nrow(plot_data), 10000)
+        coords_sample <- plot_data[sample_idx, c("col", "row")]
+      } else {
+        coords_sample <- plot_data[, c("col", "row")]
+      }
+      
+      nn_dist <- RANN::nn2(coords_sample, k = 2)$nn.dists[, 2]
+      median_dist <- median(nn_dist, na.rm = TRUE)
+      square_size <- median_dist * 1.0  # 使用最近邻距离作为正方形大小
+      
+      cat(sprintf("   📏 自动计算正方形大小: %.3f (最近邻距离)\n", square_size))
+      
+      # --------------------------------
+      # 3.5 计算坐标范围（不扩展，严格限制在切片范围）
       # --------------------------------
       col_range <- range(plot_data$col, na.rm = TRUE)
       row_range <- range(plot_data$row, na.rm = TRUE)
       
-      col_expand <- diff(col_range) * expand_margin
-      row_expand <- diff(row_range) * expand_margin
-      
-      col_limits <- c(col_range[1] - col_expand, col_range[2] + col_expand)
-      row_limits <- c(row_range[1] - row_expand, row_range[2] + row_expand)
+      col_limits <- col_range
+      row_limits <- row_range
       
       cat(sprintf("   📐 坐标范围: col[%.1f, %.1f], row[%.1f, %.1f]\n",
                   col_limits[1], col_limits[2], row_limits[1], row_limits[2]))
       
       # --------------------------------
-      # 3.5 绘制左图：Clock Gene Score
+      # 3.6 绘制左图：Clock Gene Score（正方形平铺）
       # --------------------------------
       p_score <- ggplot(plot_data, aes(x = col, y = row)) +
-        geom_point(
-          aes(fill = ClockGene_Score1), 
-          shape = 21, 
-          size = point_size, 
-          color = "white", 
-          stroke = 0.1
+        geom_tile(
+          aes(fill = ClockGene_Score1),
+          width = square_size,
+          height = square_size,
+          color = NA  # 无边框
         ) +
         scale_fill_gradientn(
           colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
@@ -161,34 +171,37 @@ plot_spatial_gradient <- function(seurat_obj, samples_to_plot, CONFIG) {
         ) +
         scale_x_continuous(
           limits = col_limits,
-          expand = expansion(mult = 0.02)
+          expand = c(0, 0)  # 不扩展
         ) +
         scale_y_reverse(
           limits = rev(row_limits),
-          expand = expansion(mult = 0.02)
+          expand = c(0, 0)  # 不扩展
         ) +
-        coord_fixed(ratio = 1) +
+        coord_fixed(
+          ratio = 1,
+          xlim = col_limits,
+          ylim = rev(row_limits),
+          clip = "on"
+        ) +
         ggtitle("Clock Gene Score") +
         theme_void() +
         theme(
           plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
           legend.position = "right",
-          legend.title = element_text(size = 10),
+          legend.title = element_text(size = 10, face = "bold"),
           legend.text = element_text(size = 8),
-          aspect.ratio = 1,
-          plot.margin = margin(5, 5, 5, 5)
+          plot.margin = margin(10, 10, 10, 10)
         )
       
       # --------------------------------
-      # 3.6 绘制右图：Distance
+      # 3.7 绘制右图：Distance（正方形平铺）
       # --------------------------------
       p_distance <- ggplot(plot_data, aes(x = col, y = row)) +
-        geom_point(
-          aes(fill = ClockGene_Distance), 
-          shape = 21, 
-          size = point_size, 
-          color = "white", 
-          stroke = 0.1
+        geom_tile(
+          aes(fill = ClockGene_Distance),
+          width = square_size,
+          height = square_size,
+          color = NA  # 无边框
         ) +
         scale_fill_gradientn(
           colors = rev(c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027")),
@@ -197,35 +210,42 @@ plot_spatial_gradient <- function(seurat_obj, samples_to_plot, CONFIG) {
         ) +
         scale_x_continuous(
           limits = col_limits,
-          expand = expansion(mult = 0.02)
+          expand = c(0, 0)
         ) +
         scale_y_reverse(
           limits = rev(row_limits),
-          expand = expansion(mult = 0.02)
+          expand = c(0, 0)
         ) +
-        coord_fixed(ratio = 1) +
+        coord_fixed(
+          ratio = 1,
+          xlim = col_limits,
+          ylim = rev(row_limits),
+          clip = "on"
+        ) +
         ggtitle("Distance to High Score Region") +
         theme_void() +
         theme(
           plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
           legend.position = "right",
-          legend.title = element_text(size = 10),
+          legend.title = element_text(size = 10, face = "bold"),
           legend.text = element_text(size = 8),
-          aspect.ratio = 1,
-          plot.margin = margin(5, 5, 5, 5)
+          plot.margin = margin(10, 10, 10, 10)
         )
       
       # --------------------------------
-      # 3.7 合并图形
+      # 3.8 合并图形
       # --------------------------------
       p_combined <- (p_score | p_distance) +
         plot_annotation(
           title = sprintf("Clock Gene Niche Analysis - %s", sample_id),
-          theme = theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
+          theme = theme(
+            plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+            plot.margin = margin(10, 10, 10, 10)
+          )
         )
       
       # --------------------------------
-      # 3.8 保存图形
+      # 3.9 保存图形
       # --------------------------------
       safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
       output_path <- file.path(
@@ -263,6 +283,7 @@ plot_spatial_gradient <- function(seurat_obj, samples_to_plot, CONFIG) {
     cat(sprintf("   失败: %d/%d\n", error_count, length(samples_to_plot)))
   }
   cat(sprintf("   输出目录: %s\n", CONFIG$dirs$spatial))
+  cat("   使用正方形平铺 (geom_tile)\n")
   cat("   Y 轴已反转以匹配 Isoheight 图\n")
   cat(rep("=", 80), "\n\n", sep = "")
   
@@ -279,6 +300,8 @@ plot_spatial_gradient <- function(seurat_obj, samples_to_plot, CONFIG) {
 # ===================================================================
 # 辅助函数：%||% 操作符（如果左侧为NULL则返回右侧）
 # ===================================================================
-`%||%` <- function(a, b) {
-  if (is.null(a)) b else a
+if (!exists("%||%")) {
+  `%||%` <- function(a, b) {
+    if (is.null(a)) b else a
+  }
 }

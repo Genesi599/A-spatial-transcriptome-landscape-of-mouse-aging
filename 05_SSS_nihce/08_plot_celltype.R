@@ -514,7 +514,7 @@ calculate_density_zones <- function(df, density_bins = 10, expand_margin = 0.05)
 
 
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（Zone用半透明纯色，无方框）
+# 辅助函数 2：绘制细胞类型+密度叠加图（修复条纹问题）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
@@ -535,7 +535,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   cat(sprintf("   ✅ 绘图范围限制在切片: col [%.1f, %.1f], row [%.1f, %.1f]\n",
               col_limits[1], col_limits[2], row_limits[1], row_limits[2]))
   
-  # 计算每个zone的密度范围（按正确顺序排列）
+  # 计算每个zone的密度范围
   zone_density_ranges <- density_data$grid %>%
     group_by(density_zone) %>%
     summarise(
@@ -567,9 +567,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     cat(sprintf("      %.1f\n", contour_breaks[i]))
   }
   
-  # =============================================
-  # 准备填充数据：将 density_zone 转换为 factor
-  # =============================================
+  # 准备填充数据（确保是 factor）
   contour_data <- density_data$grid %>%
     mutate(density_zone = factor(density_zone, levels = zone_levels))
   
@@ -588,6 +586,13 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   nn_dist <- RANN::nn2(coords_sample, k = 2)$nn.dists[, 2]
   median_dist <- median(nn_dist, na.rm = TRUE)
   square_size <- median_dist * 1.0
+  
+  # ✅ 计算网格的 tile 大小
+  grid_col_step <- unique(diff(sort(unique(contour_data$col))))[1]
+  grid_row_step <- unique(diff(sort(unique(contour_data$row))))[1]
+  
+  cat(sprintf("   📏 细胞正方形大小: %.3f\n", square_size))
+  cat(sprintf("   📏 密度网格步长: col=%.3f, row=%.3f\n", grid_col_step, grid_row_step))
   
   # 等高线颜色从低密度（蓝）到高密度（红）
   n_contours <- length(contour_breaks)
@@ -624,22 +629,26 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       name = "Cell Type",
       guide = guide_legend(
         order = 2,
-        override.aes = list(size = 4, alpha = 1),
+        override.aes = list(size = 3, alpha = 1),
         title.position = "top",
         title.hjust = 0.5,
-        ncol = 1
+        ncol = 1,
+        keywidth = unit(1.2, "cm"),
+        keyheight = unit(0.8, "cm")
       )
     ) +
     new_scale_fill() +
     
     # =============================================
-    # 2. Zone填充区域（使用geom_polygon绘制平滑边界）
+    # 2. Zone填充区域（使用正确的网格 tile）
     # =============================================
-    geom_polygon(
+    geom_tile(
       data = contour_data,
-      aes(x = col, y = row, fill = density_zone, group = density_zone),
-      alpha = 0.35,  # 半透明
-      color = NA  # 无边框
+      aes(x = col, y = row, fill = density_zone),
+      width = grid_col_step,   # ✅ 使用网格步长
+      height = grid_row_step,  # ✅ 使用网格步长
+      alpha = 0.3,
+      color = NA
     ) +
     scale_fill_manual(
       values = zone_colors,
@@ -648,11 +657,12 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       breaks = zone_levels,
       guide = guide_legend(
         order = 1,
-        override.aes = list(alpha = 0.7, color = NA),
+        override.aes = list(alpha = 0.7, size = 3),  # ✅ 统一大小
         title.position = "top",
         title.hjust = 0.5,
         label.position = "right",
         label.hjust = 0,
+        ncol = 1,
         keywidth = unit(1.2, "cm"),
         keyheight = unit(0.8, "cm")
       )
@@ -706,7 +716,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       legend.box = "vertical",
       legend.spacing.y = unit(0.5, "cm"),
       legend.title = element_text(size = 11, face = "bold"),
-      legend.text = element_text(size = 8.5, lineheight = 1.2),
+      legend.text = element_text(size = 9, lineheight = 1.2),  # ✅ 统一字体大小
       legend.key = element_rect(color = "gray70", linewidth = 0.3),
       legend.background = element_rect(fill = "white", color = "gray80", linewidth = 0.5),
       plot.margin = margin(15, 15, 15, 15)
@@ -714,7 +724,6 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   return(p)
 }
-
 
 # ===================================================================
 # 辅助函数 3：绘制区域组成柱状图（修正顺序）
