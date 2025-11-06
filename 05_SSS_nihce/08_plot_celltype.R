@@ -619,41 +619,44 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   # =============================================
   p <- ggplot() +
     # =============================================
-    # 1. 细胞类型正方形（底层）
+    # 1. ✅ 细胞类型用 color（而不是 fill）
     # =============================================
     geom_tile(
       data = df_filtered,
-      aes(x = col, y = row, fill = celltype_clean),
+      aes(x = col, y = row, color = celltype_clean, fill = celltype_clean),  # ✅ 同时设置color和fill
       width = square_size,
       height = square_size,
-      alpha = 0.85,
-      color = NA
+      alpha = 0.85
     ) +
     scale_fill_manual(
       values = celltype_colors,
       name = "Cell Type",
+      breaks = celltypes_present,
       guide = guide_legend(
         order = 2,
         override.aes = list(alpha = 1),
         title.position = "top",
         title.hjust = 0,
-        label.hjust = 0,
         ncol = 1,
-        keywidth = unit(0.8, "cm"),
+        keywidth = unit(1.2, "cm"),
         keyheight = unit(0.8, "cm")
       )
     ) +
-    new_scale_fill() +
+    scale_color_manual(
+      values = celltype_colors,
+      guide = "none"  # ✅ color不显示图例
+    ) +
+    new_scale_fill() +  # ✅ 只重置 fill，color不受影响
     
     # =============================================
-    # 2. ✅✅✅ Zone填充（使用 geom_raster，无网格线）
+    # 2. Zone填充（使用新的 fill scale）
     # =============================================
     geom_raster(
       data = contour_data,
       aes(x = col, y = row, fill = density_zone),
       alpha = 0.3,
-      interpolate = FALSE,  # 不插值，保持离散边界
-      show.legend = TRUE    # ✅ 确保显示图例
+      interpolate = FALSE,
+      show.legend = TRUE
     ) +
     scale_fill_manual(
       values = zone_colors,
@@ -661,15 +664,14 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       name = "Density Zones (0.1 intervals)\n(Zone_0=Core Red → Zone_9=Outer Blue)",
       breaks = zone_levels,
       na.value = "transparent",
-      drop = FALSE,  # ✅ 不丢弃未使用的level
+      drop = FALSE,
       guide = guide_legend(
         order = 1,
         override.aes = list(alpha = 0.7),
         title.position = "top",
         title.hjust = 0,
-        label.hjust = 0,
         ncol = 1,
-        keywidth = unit(0.8, "cm"),
+        keywidth = unit(1.0, "cm"),
         keyheight = unit(0.8, "cm")
       )
     ) +
@@ -690,46 +692,87 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       guide = "none"
     ) +
     
-    # =============================================
-    # 坐标和主题
-    # =============================================
-    scale_x_continuous(
-      limits = col_limits,
-      expand = c(0, 0)
-    ) +
-    scale_y_reverse(
-      limits = rev(row_limits),
-      expand = c(0, 0)
-    ) +
-    coord_fixed(
-      ratio = 1,
-      xlim = col_limits,
-      ylim = rev(row_limits),
-      clip = "on"
-    ) +
-    labs(
-      title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (raster) | Top = %d contour lines", 
-                        length(contour_breaks))
-    ) +
-    theme_void() +
-    theme(
-      plot.title = element_text(hjust = 0.5, size = 16, face = "bold", margin = margin(b = 5)),
-      plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray30", margin = margin(b = 10)),
-      legend.position = "right",
-      legend.box = "vertical",
-      legend.box.just = "left",
-      legend.spacing.y = unit(0.5, "cm"),
-      legend.title = element_text(size = 12, face = "bold", hjust = 0),
-      legend.text = element_text(size = 10, lineheight = 1.2, hjust = 0),
-      legend.key = element_rect(color = NA, fill = NA),
-      legend.background = element_rect(fill = "white", color = "gray80", linewidth = 0.5),
-      plot.margin = margin(15, 15, 15, 15)
-    )
+# =============================================
+# 坐标和主题（修复版）
+# =============================================
+scale_x_continuous(
+  limits = col_limits,
+  expand = c(0, 0)
+) +
+scale_y_reverse(
+  limits = rev(row_limits),
+  expand = c(0, 0)
+) +
+coord_fixed(
+  ratio = 1,
+  xlim = col_limits,
+  ylim = rev(row_limits),
+  clip = "on"
+) +
+labs(
+  title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
+  subtitle = sprintf("Bottom = Cell types | Middle = Density zones (raster) | Top = %d contour lines", 
+                    length(contour_breaks))
+) +
+theme_void() +
+theme(
+  # 标题
+  plot.title = element_text(
+    hjust = 0.5, 
+    size = 16, 
+    face = "bold", 
+    margin = margin(b = 5)
+  ),
+  plot.subtitle = element_text(
+    hjust = 0.5, 
+    size = 9, 
+    color = "gray30", 
+    margin = margin(b = 10)
+  ),
   
-  return(p)
-}
-
+  # ✅ 图例布局
+  legend.position = "right",
+  legend.box = "vertical",
+  legend.box.just = "left",
+  legend.spacing.y = unit(0.8, "cm"),  # ✅ 增大图例间距
+  
+  # ✅ 图例标题
+  legend.title = element_text(
+    size = 11,  # ✅ 稍微减小
+    face = "bold", 
+    hjust = 0,
+    margin = margin(b = 6)  # ✅ 标题下方留空
+  ),
+  
+  # ✅ 图例文字
+  legend.text = element_text(
+    size = 9.5,  # ✅ 调整大小
+    lineheight = 1.3,  # ✅ 增加行高
+    hjust = 0,
+    margin = margin(l = 2, r = 5, t = 2, b = 2)  # ✅ 文字四周留空
+  ),
+  
+  # ✅ 图例键（方块）
+  legend.key = element_rect(
+    color = "gray70",  # ✅ 添加边框
+    fill = NA,
+    linewidth = 0.3
+  ),
+  legend.key.width = unit(1.0, "cm"),   # ✅ 键宽度
+  legend.key.height = unit(0.7, "cm"),  # ✅ 键高度
+  legend.key.spacing.y = unit(0.25, "cm"),  # ✅ 键之间的垂直间距
+  
+  # ✅ 图例背景
+  legend.background = element_rect(
+    fill = "white", 
+    color = "gray70",  # ✅ 稍微深一点的边框
+    linewidth = 0.5
+  ),
+  legend.margin = margin(12, 12, 12, 12),  # ✅ 图例内边距
+  
+  # ✅ 绘图边距（右边留更多空间给图例）
+  plot.margin = margin(15, 25, 15, 15)  # top, right, bottom, left
+)
 # ===================================================================
 # 辅助函数 3：绘制区域组成柱状图（修正顺序）
 # ===================================================================
