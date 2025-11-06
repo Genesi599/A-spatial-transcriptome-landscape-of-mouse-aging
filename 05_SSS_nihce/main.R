@@ -57,8 +57,10 @@ process_single_file <- function(seurat_path, gene_list, base_config) {
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   tryCatch({
-    # 1. 环境设置
+    # ✅ 1. 环境设置（创建所有必要的目录）
+    cat("🔧 设置环境...\n")
     setup_environment(config)
+    cat("✓ 环境设置完成\n\n")
     
     # 2. 加载数据
     cat(sprintf("📥 加载 Seurat 对象...\n"))
@@ -125,6 +127,17 @@ main_batch <- function() {
   load_packages()
   load_custom_functions()
   cat("✓ 完成\n\n")
+  
+
+    # ✅ 0.5 确保输出基础目录存在
+  if (!is.null(CONFIG$output_base_dir) && CONFIG$output_base_dir != "") {
+    if (!dir.exists(CONFIG$output_base_dir)) {
+      cat(sprintf("📁 创建输出基础目录: %s\n", CONFIG$output_base_dir))
+      dir.create(CONFIG$output_base_dir, recursive = TRUE, showWarnings = FALSE)
+    }
+  } else {
+    stop("❌ 未配置 output_base_dir")
+  }
   
   # 1. 扫描输入目录
   if (CONFIG$batch_mode) {

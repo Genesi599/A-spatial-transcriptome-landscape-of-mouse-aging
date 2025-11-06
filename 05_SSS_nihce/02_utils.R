@@ -33,25 +33,27 @@ load_cache <- function(file, desc = "") {
   NULL
 }
 
-is_cache_valid <- function(cache_file, source_file = NULL, max_age_hours = NULL) {
-  if (!file.exists(cache_file)) return(FALSE)
-  
-  if (!is.null(source_file) && file.exists(source_file)) {
-    if (file.mtime(cache_file) < file.mtime(source_file)) {
-      cat("⚠️ 源文件已更新，缓存失效\n")
-      return(FALSE)
-    }
+is_cache_valid <- function(cache_file, max_age_hours = NULL) {
+  # ✅ 检查 cache_file 是否为空或 NULL
+  if (is.null(cache_file) || length(cache_file) == 0 || cache_file == "") {
+    return(FALSE)
   }
   
-  if (!is.null(max_age_hours)) {
-    age <- difftime(Sys.time(), file.mtime(cache_file), units = "hours")
-    if (age > max_age_hours) {
-      cat(sprintf("⚠️ 缓存已过期 (%.1f 小时)\n", age))
-      return(FALSE)
-    }
+  # 检查缓存文件是否存在
+  if (!file.exists(cache_file)) {
+    return(FALSE)
   }
   
-  TRUE
+  # 如果不限制缓存时间，只要文件存在就有效
+  if (is.null(max_age_hours)) {
+    return(TRUE)
+  }
+  
+  # 检查缓存年龄
+  cache_time <- file.info(cache_file)$mtime
+  age_hours <- as.numeric(difftime(Sys.time(), cache_time, units = "hours"))
+  
+  return(age_hours < max_age_hours)
 }
 
 # -----------------------------

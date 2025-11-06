@@ -5,17 +5,53 @@
 
 setup_environment <- function(config) {
   # 设置工作目录
-  setwd(config$work_dir)
-  
-  # 创建目录
-  for (dir_path in config$dirs) {
-    dir.create(dir_path, showWarnings = FALSE, recursive = TRUE)
+  if (!is.null(config$work_dir) && config$work_dir != "") {
+    if (!dir.exists(config$work_dir)) {
+      dir.create(config$work_dir, recursive = TRUE, showWarnings = FALSE)
+    }
+    setwd(config$work_dir)
+    cat(sprintf("✓ 工作目录: %s\n", config$work_dir))
   }
   
-  cat("✅ 工作目录:", getwd(), "\n")
-  cat("✅ 输出目录:", config$output_dir, "\n")
-  cat("✅ 图形目录:", config$figure_dir, "\n")
-  cat("✅ 缓存目录:", config$cache_dir, "\n\n")
+  # 创建所有必要的目录
+  if (!is.null(config$dirs)) {
+    cat("📁 创建输出目录...\n")
+    
+    for (dir_name in names(config$dirs)) {
+      dir_path <- config$dirs[[dir_name]]
+      
+      if (is.null(dir_path) || dir_path == "") {
+        warning(sprintf("⚠️  跳过空路径: %s", dir_name))
+        next
+      }
+      
+      if (!dir.exists(dir_path)) {
+        tryCatch({
+          dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+          cat(sprintf("  ✓ %s: %s\n", dir_name, dir_path))
+        }, error = function(e) {
+          warning(sprintf("⚠️  无法创建目录 %s: %s", dir_path, e$message))
+        })
+      }
+    }
+    cat("\n")
+  }
+  
+  # 同时创建基础目录（防止遗漏）
+  base_dirs <- c(
+    config$output_dir,
+    config$cache_dir,
+    config$figure_dir,
+    config$metadata_dir
+  )
+  
+  for (dir_path in base_dirs) {
+    if (!is.null(dir_path) && dir_path != "" && !dir.exists(dir_path)) {
+      dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+    }
+  }
+  
+  return(invisible(NULL))
 }
 
 load_packages <- function() {
