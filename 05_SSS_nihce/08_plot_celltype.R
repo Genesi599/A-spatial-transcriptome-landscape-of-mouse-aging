@@ -514,7 +514,7 @@ calculate_density_zones <- function(df, density_bins = 10, expand_margin = 0.05)
 
 
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（使用等高线填充，添加边距）
+# 辅助函数 2：绘制细胞类型+密度叠加图（使用 raster，无网格线）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
@@ -579,7 +579,8 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   }
   
   # 准备数据
-  contour_data <- density_data$grid
+  contour_data <- density_data$grid %>%
+    mutate(density_zone = factor(density_zone, levels = zone_levels))
   
   df_filtered <- df %>% 
     filter(!is.na(density_zone)) %>%
@@ -645,13 +646,14 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     new_scale_fill() +
     
     # =============================================
-    # 2. Zone填充（使用contour_filled）
+    # 2. ✅✅✅ Zone填充（使用 geom_raster，无网格线）
     # =============================================
-    geom_contour_filled(
+    geom_raster(
       data = contour_data,
-      aes(x = col, y = row, z = density_norm),
-      breaks = c(0, contour_breaks, 1),
-      alpha = 0.3
+      aes(x = col, y = row, fill = density_zone),
+      alpha = 0.3,
+      interpolate = FALSE,  # 不插值，保持离散边界
+      show.legend = TRUE    # ✅ 确保显示图例
     ) +
     scale_fill_manual(
       values = zone_colors,
@@ -659,6 +661,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       name = "Density Zones (0.1 intervals)\n(Zone_0=Core Red → Zone_9=Outer Blue)",
       breaks = zone_levels,
       na.value = "transparent",
+      drop = FALSE,  # ✅ 不丢弃未使用的level
       guide = guide_legend(
         order = 1,
         override.aes = list(alpha = 0.7),
@@ -688,11 +691,11 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     
     # =============================================
-    # 坐标和主题（✅ 使用添加了边距的范围）
+    # 坐标和主题
     # =============================================
     scale_x_continuous(
       limits = col_limits,
-      expand = c(0, 0)  # 不再额外扩展，因为已经手动添加了边距
+      expand = c(0, 0)
     ) +
     scale_y_reverse(
       limits = rev(row_limits),
@@ -706,7 +709,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (filled contours) | Top = %d contour lines", 
+      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (raster) | Top = %d contour lines", 
                         length(contour_breaks))
     ) +
     theme_void() +
