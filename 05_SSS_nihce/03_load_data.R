@@ -55,7 +55,7 @@ load_gene_list <- function(config) {
 load_seurat_object <- function(config) {
   cat("📥 加载 Seurat 对象...\n")
   
-  # ✅ 确保目录存在
+  # 确保目录存在
   if (!is.null(config$cache_dir)) {
     if (!dir.exists(config$cache_dir)) {
       dir.create(config$cache_dir, recursive = TRUE, showWarnings = FALSE)
@@ -74,6 +74,10 @@ load_seurat_object <- function(config) {
     cat("✓ 从缓存加载 Seurat 对象\n")
     seurat_obj <- readRDS(cache_file)
     cat(sprintf("✓ 加载完成: %d 个细胞\n", ncol(seurat_obj)))
+    
+    # ✅ 修复缓存的对象
+    seurat_obj <- fix_seurat_object(seurat_obj)
+    
     return(seurat_obj)
   }
   
@@ -89,6 +93,9 @@ load_seurat_object <- function(config) {
   
   cat(sprintf("✓ 加载完成: %d 个细胞, %d 个基因\n", 
               ncol(seurat_obj), nrow(seurat_obj)))
+  
+  # ✅ 修复对象
+  seurat_obj <- fix_seurat_object(seurat_obj)
   
   # 保存缓存（可选）
   if (!is.null(cache_file) && config$save_full_object) {
@@ -123,4 +130,52 @@ check_gene_overlap <- function(gene_list, seurat_obj) {
   
   cat("\n")
   return(genes_in_data)
+}
+
+fix_seurat_object <- function(seurat_obj) {
+  cat("🔧 检查并修复 Seurat 对象...\n")
+  
+  # 检查是否是 Seurat 对象
+  if (!inherits(seurat_obj, "Seurat")) {
+    warning("⚠️  对象不是 Seurat 类")
+    return(seurat_obj)
+  }
+  
+  # 修复 VisiumV1 对象
+  if (length(seurat_obj@images) > 0) {
+    for (img_name in names(seurat_obj@images)) {
+      img <- seurat_obj@images[[img_name]]
+      
+      # 检查是否是 VisiumV1 类
+      if (inherits(img, "VisiumV1")) {
+        cat(sprintf("   🔧 修复图像: %s\n", img_name))
+        
+        # 添加缺失的 misc 插槽
+        if (!.hasSlot(img, "misc")) {
+          tryCatch({
+            img@misc <- list()
+            seurat_obj@images[[img_name]] <- img
+            cat(sprintf("   ✓ 已添加 misc 插槽\n"))
+          }, error = function(e) {
+            cat(sprintf("   ⚠️  无法添加 misc 插槽: %s\n", e$message))
+          })
+        }
+        
+        # 验证修复
+        tryCatch({
+          validObject(img)
+          cat(sprintf("   ✓ 对象验证通过\n"))
+        }, error = function(e) {
+          cat(sprintf("   ⚠️  对象验证失败: %s\n", e$message))
+          
+          # 尝试更激进的修复：移除 images
+          cat(sprintf("   🔧 尝试移除有问题的图像对象...\n"))
+          seurat_obj@images[[img_name]] <- NULL
+        })
+      }
+    }
+  }
+  
+  cat("✓ Seurat 对象检查完成\n\n")
+  return(seurat_obj)
 }
