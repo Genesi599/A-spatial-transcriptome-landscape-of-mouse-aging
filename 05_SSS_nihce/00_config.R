@@ -13,7 +13,7 @@ CONFIG <- list(
   seurat_path = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds/Lung_2-25M.rds",
   
   # ===== 分析参数 =====
-  threshold_quantile = 0.90,  # Top 10%
+  threshold_quantile = 0.95,  # Top 10%
   niche_dist_method = "Euclidean",
   n_workers = 6,
   
@@ -30,7 +30,7 @@ CONFIG <- list(
   ),
   
   # ===== 调试参数 =====
-  debug_mode = TRUE,
+  debug_mode = FALSE,
   debug_sample_limit = 3,
   save_full_object = FALSE,
   

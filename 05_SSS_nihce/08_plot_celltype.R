@@ -600,7 +600,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       data = df %>% filter(!is.na(density_zone)),
       aes(x = col, y = row, fill = celltype_clean),
       shape = 21,
-      size = 2.5,
+      size = 1,
       color = "white",
       stroke = 0.3,
       alpha = 0.85
