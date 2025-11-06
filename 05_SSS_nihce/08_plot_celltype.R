@@ -567,10 +567,16 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     cat(sprintf("      %.1f\n", contour_breaks[i]))
   }
   
-  contour_data <- density_data$grid
+  # =============================================
+  # 准备填充数据：将 density_zone 转换为 factor
+  # =============================================
+  contour_data <- density_data$grid %>%
+    mutate(density_zone = factor(density_zone, levels = zone_levels))
   
   # 自动计算正方形大小
-  df_filtered <- df %>% filter(!is.na(density_zone))
+  df_filtered <- df %>% 
+    filter(!is.na(density_zone)) %>%
+    mutate(density_zone = factor(density_zone, levels = zone_levels))
   
   if (nrow(df_filtered) > 10000) {
     sample_idx <- sample(nrow(df_filtered), 10000)
@@ -627,14 +633,13 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     new_scale_fill() +
     
     # =============================================
-    # 2. Zone填充区域（半透明纯色，无边框）
+    # 2. Zone填充区域（使用geom_polygon绘制平滑边界）
     # =============================================
-    # 使用 stat_contour_filled 创建填充区域
-    stat_contour_filled(
+    geom_polygon(
       data = contour_data,
-      aes(x = col, y = row, z = density_norm, fill = after_stat(level)),
-      breaks = contour_breaks,
-      alpha = 0.3  # 半透明
+      aes(x = col, y = row, fill = density_zone, group = density_zone),
+      alpha = 0.35,  # 半透明
+      color = NA  # 无边框
     ) +
     scale_fill_manual(
       values = zone_colors,
@@ -643,7 +648,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       breaks = zone_levels,
       guide = guide_legend(
         order = 1,
-        override.aes = list(alpha = 0.7),
+        override.aes = list(alpha = 0.7, color = NA),
         title.position = "top",
         title.hjust = 0.5,
         label.position = "right",
@@ -664,7 +669,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
           aes(x = col, y = row, z = density_norm),
           breaks = contour_breaks[i],
           color = contour_colors[i],
-          linewidth = 0.5,  # 更细的线
+          linewidth = 0.5,
           alpha = 0.7
         )
       }
