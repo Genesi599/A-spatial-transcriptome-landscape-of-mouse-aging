@@ -10,7 +10,7 @@ CONFIG <- list(
   
   # 数据路径
   gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/NET_gene_list_mouse.txt",
-  seurat_path = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds/Spleen_2-25M.rds",
+  seurat_path = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds/Lung_2-25M.rds",
   
   # ===== 分析参数 =====
   threshold_quantile = 0.90,  # Top 10%
