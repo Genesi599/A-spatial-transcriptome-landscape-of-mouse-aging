@@ -514,26 +514,37 @@ calculate_density_zones <- function(df, density_bins = 10, expand_margin = 0.05)
 
 
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（修复网格线和图例格式）
+# 辅助函数 2：绘制细胞类型+密度叠加图（使用等高线填充，添加边距）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   # 获取zone信息
   n_zones <- length(unique(density_data$grid$density_zone))
-  # 按 Zone_0, Zone_1, ..., Zone_9 排序
   zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
   
   # 使用统一的颜色方案
   zone_colors <- get_zone_colors(n_zones)
   celltype_colors <- get_celltype_colors(unique(df$celltype_clean))
   
-  # 使用切片的实际范围
-  col_limits <- density_data$col_range
-  row_limits <- density_data$row_range
+  # ✅ 使用切片的实际范围，并添加边距
+  col_range_raw <- density_data$col_range
+  row_range_raw <- density_data$row_range
   
-  cat(sprintf("   ✅ 绘图范围限制在切片: col [%.1f, %.1f], row [%.1f, %.1f]\n",
+  # 计算边距（范围的5%）
+  col_margin <- diff(col_range_raw) * 0.05
+  row_margin <- diff(row_range_raw) * 0.05
+  
+  # 应用边距
+  col_limits <- c(col_range_raw[1] - col_margin, col_range_raw[2] + col_margin)
+  row_limits <- c(row_range_raw[1] - row_margin, row_range_raw[2] + row_margin)
+  
+  cat(sprintf("   ✅ 原始切片范围: col [%.1f, %.1f], row [%.1f, %.1f]\n",
+              col_range_raw[1], col_range_raw[2], row_range_raw[1], row_range_raw[2]))
+  cat(sprintf("   ✅ 添加边距后范围: col [%.1f, %.1f], row [%.1f, %.1f]\n",
               col_limits[1], col_limits[2], row_limits[1], row_limits[2]))
+  cat(sprintf("   ✅ 边距大小: col=%.1f, row=%.1f (范围的5%%)\n",
+              col_margin, row_margin))
   
   # 计算每个zone的密度范围
   zone_density_ranges <- density_data$grid %>%
@@ -559,7 +570,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   names(zone_labels) <- as.character(zone_density_ranges$density_zone)
   
-  # 使用0.1等距边界绘制等高线
+  # 使用0.1等距边界
   contour_breaks <- density_data$equal_breaks
   
   cat(sprintf("   ✅ 等高线边界（0.1等距，共%d条）:\n", length(contour_breaks)))
@@ -567,15 +578,14 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     cat(sprintf("      %.1f\n", contour_breaks[i]))
   }
   
-  # 准备填充数据（确保是 factor）
-  contour_data <- density_data$grid %>%
-    mutate(density_zone = factor(density_zone, levels = zone_levels))
+  # 准备数据
+  contour_data <- density_data$grid
   
-  # 自动计算正方形大小
   df_filtered <- df %>% 
     filter(!is.na(density_zone)) %>%
     mutate(density_zone = factor(density_zone, levels = zone_levels))
   
+  # 自动计算细胞正方形大小
   if (nrow(df_filtered) > 10000) {
     sample_idx <- sample(nrow(df_filtered), 10000)
     coords_sample <- df_filtered[sample_idx, c("col", "row")]
@@ -587,19 +597,9 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   median_dist <- median(nn_dist, na.rm = TRUE)
   square_size <- median_dist * 1.0
   
-  # ✅ 计算网格的 tile 大小（稍微放大以避免间隙）
-  grid_col_step <- unique(diff(sort(unique(contour_data$col))))[1]
-  grid_row_step <- unique(diff(sort(unique(contour_data$row))))[1]
-  
-  # 放大1.01倍避免网格线
-  grid_col_step <- grid_col_step * 1.01
-  grid_row_step <- grid_row_step * 1.01
-  
   cat(sprintf("   📏 细胞正方形大小: %.3f\n", square_size))
-  cat(sprintf("   📏 密度网格步长: col=%.3f, row=%.3f\n", grid_col_step, grid_row_step))
   
   # 等高线颜色从低密度（蓝）到高密度（红）
-  n_contours <- length(contour_breaks)
   contour_colors <- colorRampPalette(c(
     "#053061",  # 深蓝 (0.0 - 低密度)
     "#2166ac",
@@ -611,7 +611,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     "#d6604d",
     "#b2182b",
     "#67001f"   # 深红 (1.0 - 高密度)
-  ))(n_contours)
+  ))(length(contour_breaks))
   
   # =============================================
   # 绘图
@@ -633,72 +633,69 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       name = "Cell Type",
       guide = guide_legend(
         order = 2,
-        override.aes = list(alpha = 1),  # 移除 size，使用正方形
+        override.aes = list(alpha = 1),
         title.position = "top",
-        title.hjust = 0,  # ✅ 左对齐标题
-        label.hjust = 0,  # ✅ 左对齐标签
+        title.hjust = 0,
+        label.hjust = 0,
         ncol = 1,
-        keywidth = unit(0.8, "cm"),   # ✅ 正方形：宽度
-        keyheight = unit(0.8, "cm")   # ✅ 正方形：高度
+        keywidth = unit(0.8, "cm"),
+        keyheight = unit(0.8, "cm")
       )
     ) +
     new_scale_fill() +
     
     # =============================================
-    # 2. Zone填充区域（无网格线）
+    # 2. Zone填充（使用contour_filled）
     # =============================================
-    geom_tile(
+    geom_contour_filled(
       data = contour_data,
-      aes(x = col, y = row, fill = density_zone),
-      width = grid_col_step,   # ✅ 放大1.01倍
-      height = grid_row_step,  # ✅ 放大1.01倍
-      alpha = 0.3,
-      color = NA  # ✅ 确保无边框
+      aes(x = col, y = row, z = density_norm),
+      breaks = c(0, contour_breaks, 1),
+      alpha = 0.3
     ) +
     scale_fill_manual(
       values = zone_colors,
       labels = zone_labels,
       name = "Density Zones (0.1 intervals)\n(Zone_0=Core Red → Zone_9=Outer Blue)",
       breaks = zone_levels,
+      na.value = "transparent",
       guide = guide_legend(
         order = 1,
-        override.aes = list(alpha = 0.7),  # 移除 size，使用正方形
+        override.aes = list(alpha = 0.7),
         title.position = "top",
-        title.hjust = 0,  # ✅ 左对齐标题
-        label.hjust = 0,  # ✅ 左对齐标签
+        title.hjust = 0,
+        label.hjust = 0,
         ncol = 1,
-        keywidth = unit(0.8, "cm"),   # ✅ 正方形：宽度
-        keyheight = unit(0.8, "cm")   # ✅ 正方形：高度
+        keywidth = unit(0.8, "cm"),
+        keyheight = unit(0.8, "cm")
       )
     ) +
     
     # =============================================
-    # 3. 等高线（顶层，细线）
+    # 3. 等高线边界（顶层，细线）
     # =============================================
-    {
-      contour_layers <- list()
-      for (i in 1:length(contour_breaks)) {
-        contour_layers[[i]] <- geom_contour(
-          data = contour_data,
-          aes(x = col, y = row, z = density_norm),
-          breaks = contour_breaks[i],
-          color = contour_colors[i],
-          linewidth = 0.5,
-          alpha = 0.7
-        )
-      }
-      contour_layers
-    } +
+    geom_contour(
+      data = contour_data,
+      aes(x = col, y = row, z = density_norm, color = after_stat(level)),
+      breaks = contour_breaks,
+      linewidth = 0.5,
+      alpha = 0.7
+    ) +
+    scale_color_gradientn(
+      colors = contour_colors,
+      limits = c(min(contour_breaks), max(contour_breaks)),
+      guide = "none"
+    ) +
     
     # =============================================
-    # 坐标和主题
+    # 坐标和主题（✅ 使用添加了边距的范围）
     # =============================================
     scale_x_continuous(
-      limits = col_limits, 
-      expand = c(0, 0)
+      limits = col_limits,
+      expand = c(0, 0)  # 不再额外扩展，因为已经手动添加了边距
     ) +
     scale_y_reverse(
-      limits = rev(row_limits), 
+      limits = rev(row_limits),
       expand = c(0, 0)
     ) +
     coord_fixed(
@@ -709,7 +706,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (transparent) | Top = %d contour lines", 
+      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (filled contours) | Top = %d contour lines", 
                         length(contour_breaks))
     ) +
     theme_void() +
@@ -718,11 +715,11 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray30", margin = margin(b = 10)),
       legend.position = "right",
       legend.box = "vertical",
-      legend.box.just = "left",  # ✅ 图例框左对齐
+      legend.box.just = "left",
       legend.spacing.y = unit(0.5, "cm"),
-      legend.title = element_text(size = 12, face = "bold", hjust = 0),  # ✅ 加大字体，左对齐
-      legend.text = element_text(size = 10, lineheight = 1.2, hjust = 0),  # ✅ 加大字体，左对齐
-      legend.key = element_rect(color = NA, fill = NA),  # ✅ 移除方框边框
+      legend.title = element_text(size = 12, face = "bold", hjust = 0),
+      legend.text = element_text(size = 10, lineheight = 1.2, hjust = 0),
+      legend.key = element_rect(color = NA, fill = NA),
       legend.background = element_rect(fill = "white", color = "gray80", linewidth = 0.5),
       plot.margin = margin(15, 15, 15, 15)
     )

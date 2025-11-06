@@ -1,5 +1,3 @@
-# 00_config.R
-
 #!/usr/bin/env Rscript
 # ===================================================================
 # 配置参数
@@ -12,10 +10,28 @@ CONFIG <- list(
   
   # 数据路径
   gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/NET_gene_list_mouse.txt",
+  
+  # ===== 批量处理设置 =====
+  batch_mode = FALSE,  # TRUE: 批量处理模式, FALSE: 单文件模式
+  
+  # 单文件模式（当 batch_mode = FALSE 时使用）
   seurat_path = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds/Lung_2-25M.rds",
+  
+  # 批量模式（当 batch_mode = TRUE 时使用）
+  seurat_dir = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds",
+  seurat_pattern = "\\.rds$",  # 匹配所有 .rds 文件
+  recursive_search = FALSE,    # 是否递归搜索子目录
+  
+  # 可选：指定要处理的文件（留空则处理所有匹配的文件）
+  # 例如: c("Lung_2-25M.rds", "Heart_2-25M.rds")
+  specific_files = NULL,
+  
+  # 可选：排除某些文件
+  # 例如: c("test.rds", "backup.rds")
+  exclude_files = NULL,
 
   # ===== 分析参数 =====
-  threshold_quantile = 0.95,  # Top 10%
+  threshold_quantile = 0.95,  # Top 5%
   niche_dist_method = "Euclidean",
   n_workers = 6,
   
@@ -41,37 +57,35 @@ CONFIG <- list(
 )
 
 # ===================================================================
-# 自动根据 Seurat 文件名生成输出目录
+# 打印配置信息
 # ===================================================================
 
-# 提取 Seurat 文件名（不含扩展名）
-seurat_basename <- tools::file_path_sans_ext(basename(CONFIG$seurat_path))
+cat(sprintf("\n╔═══════════════════════════════════════════════════════════╗\n"))
+cat(sprintf("║                    配置信息                                ║\n"))
+cat(sprintf("╚═══════════════════════════════════════════════════════════╝\n\n"))
 
-# 生成项目特定的输出目录
-CONFIG$output_dir <- file.path(CONFIG$output_base_dir, seurat_basename)
+if (CONFIG$batch_mode) {
+  cat(sprintf("运行模式: 批量处理\n"))
+  cat(sprintf("输入目录: %s\n", CONFIG$seurat_dir))
+  cat(sprintf("文件模式: %s\n", CONFIG$seurat_pattern))
+  cat(sprintf("递归搜索: %s\n", ifelse(CONFIG$recursive_search, "是", "否")))
+  
+  if (!is.null(CONFIG$specific_files)) {
+    cat(sprintf("指定文件: %s\n", paste(CONFIG$specific_files, collapse = ", ")))
+  }
+  
+  if (!is.null(CONFIG$exclude_files)) {
+    cat(sprintf("排除文件: %s\n", paste(CONFIG$exclude_files, collapse = ", ")))
+  }
+} else {
+  cat(sprintf("运行模式: 单文件处理\n"))
+  cat(sprintf("Seurat 文件: %s\n", basename(CONFIG$seurat_path)))
+}
 
-# 生成目录路径
-CONFIG$cache_dir <- file.path(CONFIG$output_dir, "cache")
-CONFIG$figure_dir <- file.path(CONFIG$output_dir, "figure")
-CONFIG$metadata_dir <- file.path(CONFIG$output_dir, "metadata")
-
-# 子目录
-CONFIG$dirs <- list(
-  cache = CONFIG$cache_dir,
-  figure = CONFIG$figure_dir,
-  metadata = CONFIG$metadata_dir,
-  isoheight = file.path(CONFIG$figure_dir, "isoheight"),
-  spatial = file.path(CONFIG$figure_dir, "spatial"),
-  overlay = file.path(CONFIG$figure_dir, "isoheight", "01_overlay_plots"),
-  celltype = file.path(CONFIG$figure_dir, "isoheight", "02_celltype_only"),
-  composition = file.path(CONFIG$figure_dir, "isoheight", "03_composition_stats"),
-  heatmaps = file.path(CONFIG$figure_dir, "isoheight", "04_heatmaps"),
-  combined = file.path(CONFIG$figure_dir, "isoheight", "05_combined_analysis")
-)
-
-# 打印配置信息
-cat(sprintf("\n=== 配置信息 ===\n"))
-cat(sprintf("Seurat 文件: %s\n", basename(CONFIG$seurat_path)))
-cat(sprintf("项目名称: %s\n", seurat_basename))
-cat(sprintf("输出目录: %s\n", CONFIG$output_dir))
-cat(sprintf("================\n\n"))
+cat(sprintf("输出目录: %s\n", CONFIG$output_base_dir))
+cat(sprintf("阈值分位数: %.2f (Top %.0f%%)\n", 
+            CONFIG$threshold_quantile, 
+            (1 - CONFIG$threshold_quantile) * 100))
+cat(sprintf("并行工作数: %d\n", CONFIG$n_workers))
+cat(sprintf("调试模式: %s\n", ifelse(CONFIG$debug_mode, "开启", "关闭")))
+cat(sprintf("\n"))

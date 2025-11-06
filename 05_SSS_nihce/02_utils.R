@@ -1,3 +1,5 @@
+
+
 #!/usr/bin/env Rscript
 # ===================================================================
 # 工具函数
@@ -97,4 +99,54 @@ calculate_coord_limits <- function(plot_data, expand = 0.05) {
     col = c(col_range[1] - col_expand, col_range[2] + col_expand),
     row = c(row_range[1] - row_expand, row_range[2] + row_expand)
   )
+}
+
+# ===================================================================
+# 文件过滤函数
+# ===================================================================
+
+filter_seurat_files <- function(files, config) {
+  original_count <- length(files)
+  
+  # 只保留指定的文件
+  if (!is.null(config$specific_files)) {
+    basenames <- basename(files)
+    files <- files[basenames %in% config$specific_files]
+    
+    if (length(files) == 0) {
+      stop("❌ 未找到任何指定的文件")
+    }
+    
+    # 检查是否有未找到的文件
+    found_files <- basename(files)
+    missing <- setdiff(config$specific_files, found_files)
+    if (length(missing) > 0) {
+      warning(sprintf("⚠️  以下指定文件未找到:\n  %s", 
+                      paste(missing, collapse = "\n  ")))
+    }
+    
+    cat(sprintf("✓ 匹配到 %d/%d 个指定文件\n", 
+                length(files), length(config$specific_files)))
+  }
+  
+  # 排除指定的文件
+  if (!is.null(config$exclude_files)) {
+    basenames <- basename(files)
+    excluded_count <- sum(basenames %in% config$exclude_files)
+    files <- files[!basenames %in% config$exclude_files]
+    
+    if (length(files) == 0) {
+      stop("❌ 过滤后没有剩余文件")
+    }
+    
+    if (excluded_count > 0) {
+      cat(sprintf("✓ 排除了 %d 个文件\n", excluded_count))
+    }
+  }
+  
+  if (length(files) != original_count) {
+    cat(sprintf("📋 文件过滤: %d -> %d\n", original_count, length(files)))
+  }
+  
+  return(files)
 }
