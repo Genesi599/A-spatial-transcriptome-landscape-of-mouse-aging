@@ -1,3 +1,5 @@
+# 00_config.R
+
 #!/usr/bin/env Rscript
 # ===================================================================
 # 配置参数
@@ -6,12 +8,12 @@
 CONFIG <- list(
   # ===== 路径设置 =====
   work_dir = "/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce",
-  output_dir = "/dellstorage09/quj_lab/yanghang/spatial",
+  output_base_dir = "/dellstorage09/quj_lab/yanghang/spatial",
   
   # 数据路径
   gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/NET_gene_list_mouse.txt",
   seurat_path = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds/Lung_2-25M.rds",
-  
+
   # ===== 分析参数 =====
   threshold_quantile = 0.95,  # Top 10%
   niche_dist_method = "Euclidean",
@@ -38,6 +40,16 @@ CONFIG <- list(
   cache_max_age_hours = NULL
 )
 
+# ===================================================================
+# 自动根据 Seurat 文件名生成输出目录
+# ===================================================================
+
+# 提取 Seurat 文件名（不含扩展名）
+seurat_basename <- tools::file_path_sans_ext(basename(CONFIG$seurat_path))
+
+# 生成项目特定的输出目录
+CONFIG$output_dir <- file.path(CONFIG$output_base_dir, seurat_basename)
+
 # 生成目录路径
 CONFIG$cache_dir <- file.path(CONFIG$output_dir, "cache")
 CONFIG$figure_dir <- file.path(CONFIG$output_dir, "figure")
@@ -56,3 +68,10 @@ CONFIG$dirs <- list(
   heatmaps = file.path(CONFIG$figure_dir, "isoheight", "04_heatmaps"),
   combined = file.path(CONFIG$figure_dir, "isoheight", "05_combined_analysis")
 )
+
+# 打印配置信息
+cat(sprintf("\n=== 配置信息 ===\n"))
+cat(sprintf("Seurat 文件: %s\n", basename(CONFIG$seurat_path)))
+cat(sprintf("项目名称: %s\n", seurat_basename))
+cat(sprintf("输出目录: %s\n", CONFIG$output_dir))
+cat(sprintf("================\n\n"))

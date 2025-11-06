@@ -479,7 +479,7 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
 
 
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（等高线带颜色版）
+# 辅助函数 2：绘制细胞类型+密度叠加图（等高线在最上层，六边形铺满）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
@@ -529,9 +529,30 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   # 为等高线创建颜色映射数据
   contour_data <- density_data$grid
   
+  # =============================================
+  # 自动计算六边形大小（根据细胞密度）
+  # =============================================
+  df_filtered <- df %>% filter(!is.na(density_zone))
+  n_cells <- nrow(df_filtered)
+  plot_area <- diff(col_range) * diff(row_range)
+  
+  # 估算合理的六边形数量（覆盖率约70-90%）
+  target_hex_count <- n_cells * 0.8
+  hex_area <- plot_area / target_hex_count
+  
+  # 六边形的"半径"（从中心到顶点）
+  # 六边形面积 = (3*sqrt(3)/2) * r^2，其中r是外接圆半径
+  hex_radius <- sqrt(hex_area / (3 * sqrt(3) / 2))
+  
+  # bins参数：沿x轴方向的六边形数量
+  # bins ≈ plot_width / (2 * hex_radius)
+  bins_x <- max(10, min(100, round(diff(col_range) / (2 * hex_radius))))
+  
   # 绘图
   p <- ggplot() +
+    # =============================================
     # 1. Zone区域填充（底层，半透明背景）
+    # =============================================
     geom_tile(
       data = density_data$grid,
       aes(x = col, y = row, fill = density_zone),
@@ -555,9 +576,39 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     new_scale_fill() +
     
-    # 2. 白色边框增强可见度（底层）
+    # =============================================
+    # 2. 细胞类型六边形（中层，无缝铺满）
+    # =============================================
+    stat_summary_hex(
+      data = df_filtered,
+      aes(x = col, y = row, z = as.numeric(factor(celltype_clean)), fill = celltype_clean),
+      fun = function(x) {
+        # 返回该六边形内最常见的细胞类型
+        ux <- unique(x)
+        ux[which.max(tabulate(match(x, ux)))]
+      },
+      bins = bins_x,
+      alpha = 0.85,
+      color = NA  # 无描边
+    ) +
+    scale_fill_manual(
+      values = celltype_colors,
+      name = "Cell Type",
+      guide = guide_legend(
+        order = 2,
+        override.aes = list(size = 4, alpha = 1),
+        title.position = "top",
+        title.hjust = 0.5,
+        ncol = 1
+      )
+    ) +
+    
+    # =============================================
+    # 3. 等高线（最上层）
+    # =============================================
+    # 白色边框增强可见度
     geom_contour(
-      data = density_data$grid,
+      data = contour_data,
       aes(x = col, y = row, z = density_norm),
       color = "white",
       linewidth = 2.2,
@@ -565,18 +616,14 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       alpha = 0.5
     ) +
     
-    # 3. 等高线（使用与zone一致的颜色）
-    # 为每个zone边界绘制对应颜色的等高线
+    # 彩色等高线（与zone颜色一致）
     {
       contour_layers <- list()
       for (i in 1:length(contour_breaks)) {
         # 计算该等高线对应的zone
-        # contour_breaks[i] 是边界值，需要找到它分隔的两个zone中密度较高的那个
         if (i == 1) {
-          # 最低边界，对应最外围zone
           zone_idx <- n_zones - 1
         } else {
-          # 其他边界，对应较高密度一侧的zone
           zone_idx <- n_zones - i + 1
         }
         
@@ -595,35 +642,15 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       contour_layers
     } +
     
-    # 4. 细胞类型点
-    geom_point(
-      data = df %>% filter(!is.na(density_zone)),
-      aes(x = col, y = row, fill = celltype_clean),
-      shape = 21,
-      size = 1,
-      color = "white",
-      stroke = 0.3,
-      alpha = 0.85
-    ) +
-    scale_fill_manual(
-      values = celltype_colors,
-      name = "Cell Type",
-      guide = guide_legend(
-        order = 2,
-        override.aes = list(size = 4, alpha = 1, stroke = 0.5),
-        title.position = "top",
-        title.hjust = 0.5,
-        ncol = 1
-      )
-    ) +
-    
+    # =============================================
     # 坐标和主题
+    # =============================================
     scale_x_continuous(limits = col_limits, expand = expansion(mult = 0.02)) +
     scale_y_reverse(limits = rev(row_limits), expand = expansion(mult = 0.02)) +
     coord_fixed(ratio = 1) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = "Background & contour lines = Density zones (same colors, Zone_0=Core/High) | Points = Cell types"
+      subtitle = "Background = Density zones | Hexagons = Cell types | Top lines = Density contours (Zone_0=Core/High)"
     ) +
     theme_void() +
     theme(
