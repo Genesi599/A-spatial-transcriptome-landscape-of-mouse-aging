@@ -479,7 +479,7 @@ calculate_density_zones <- function(df, density_bins = 5, expand_margin = 0.05) 
 
 
 # ===================================================================
-# 辅助函数 2：绘制细胞类型+密度叠加图（等高线和Zone都在最上层）
+# 辅助函数 2：绘制细胞类型+密度叠加图（10%分位数等高线）
 # ===================================================================
 
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
@@ -523,8 +523,22 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   names(zone_labels) <- zone_density_ranges$density_zone
   
-  # 计算等高线的具体数值（对应zone边界）
-  contour_breaks <- seq(0, 1, length.out = n_zones + 1)
+  # =============================================
+  # 使用10%分位数划分等高线（与原始等高线图一致）
+  # =============================================
+  # 计算密度值的10%分位数
+  density_values <- density_data$grid$density_norm
+  percentile_breaks <- quantile(density_values, probs = seq(0, 1, by = 0.1), na.rm = TRUE)
+  
+  # 去重并排序（有些分位数可能重复）
+  contour_breaks <- unique(percentile_breaks)
+  contour_breaks <- sort(contour_breaks)
+  
+  cat(sprintf("   ✅ 等高线分位数 (10%% intervals):\n"))
+  for (i in seq_along(contour_breaks)) {
+    pct <- (i - 1) * 10
+    cat(sprintf("      %d%%: %.3f\n", pct, contour_breaks[i]))
+  }
   
   # 为等高线创建颜色映射数据
   contour_data <- density_data$grid
@@ -549,6 +563,14 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   # 正方形的边长应该等于最近邻距离，使其刚好无缝铺满
   square_size <- median_dist * 1.0  # 可以微调这个系数（0.95-1.05）
+  
+  # =============================================
+  # 为每条等高线分配颜色（基于密度值）
+  # =============================================
+  # 将等高线位置映射到zone颜色
+  n_contours <- length(contour_breaks)
+  contour_colors <- colorRampPalette(c("#3288BD", "#66C2A5", "#ABDDA4", "#E6F598", 
+                                        "#FEE08B", "#FDAE61", "#F46D43", "#D53E4F"))(n_contours)
   
   # 绘图
   p <- ggplot() +
@@ -587,7 +609,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     scale_fill_manual(
       values = zone_colors,
       labels = zone_labels,
-      name = "Density Zones & Contour Lines\n(Normalized Range, Zone_0=Core)",
+      name = "Density Zones (10% Percentiles)\n(Normalized Range, Zone_0=Core)",
       breaks = zone_levels,
       guide = guide_legend(
         order = 1,
@@ -602,28 +624,18 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     ) +
     
     # =============================================
-    # 3. 等高线（最上层，无描边）
+    # 3. 等高线（最上层，按10%分位数）
     # =============================================
     {
       contour_layers <- list()
       for (i in 1:length(contour_breaks)) {
-        # 计算该等高线对应的zone
-        if (i == 1) {
-          zone_idx <- n_zones - 1
-        } else {
-          zone_idx <- n_zones - i + 1
-        }
-        
-        zone_name <- sprintf("Zone_%d", zone_idx)
-        zone_color <- zone_colors[zone_name]
-        
         contour_layers[[i]] <- geom_contour(
           data = contour_data,
           aes(x = col, y = row, z = density_norm),
           breaks = contour_breaks[i],
-          color = zone_color,
-          linewidth = 1.5,
-          alpha = 0.9
+          color = contour_colors[i],
+          linewidth = 0.6,  # ✅ 从 1.2 改为 0.6（更细）
+          alpha = 0.8       # ✅ 稍微降低透明度
         )
       }
       contour_layers
@@ -637,7 +649,8 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     coord_fixed(ratio = 1) +
     labs(
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = "Bottom layer = Cell types (squares) | Middle layer = Density zones (transparent) | Top layer = Contour lines (Zone_0=Core/High)"
+      subtitle = sprintf("Bottom = Cell types | Middle = Density zones | Top = Contour lines (10%% percentiles, %d lines)", 
+                        length(contour_breaks))
     ) +
     theme_void() +
     theme(
@@ -655,7 +668,6 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   return(p)
 }
-
 
 # ===================================================================
 # 辅助函数 3：绘制区域组成柱状图（统一配色版）
