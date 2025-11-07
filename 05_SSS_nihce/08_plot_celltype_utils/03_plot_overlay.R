@@ -14,6 +14,8 @@
 #'
 #' @return ggplot对象
 #'
+
+
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   require(ggplot2)
@@ -126,18 +128,28 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   contour_colors <- get_contour_colors(length(contour_breaks))
   
   # ========================================
-  # 5. 绘图（关键修复）
+  # 5. 绘图（优化版）
   # ========================================
   
+  # 统一的图例样式参数
+  legend_key_width <- 1.0
+  legend_key_height <- 0.7
+  legend_text_size <- 10
+  legend_title_size <- 11
+  
   p <- ggplot() +
+    # ========================================
     # Layer 1: 细胞类型（底层）
-    # ✅ 关键：使用 geom_point 代替 geom_tile 测试
-    geom_point(
+    # ========================================
+    # ✅ 关键修复：使用 color aesthetic，而不是 fill
+    geom_tile(
       data = df_filtered,
       aes(x = col, y = row, color = celltype_clean),
-      size = square_size * 2,  # point 的 size 需要调整
-      shape = 15,  # 正方形
-      alpha = 1
+      width = square_size,
+      height = square_size,
+      fill = NA,  # ✅ fill 设为 NA
+      alpha = 1,
+      linewidth = 0  # 没有边框
     ) +
     scale_color_manual(
       values = celltype_colors,
@@ -145,46 +157,68 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       breaks = all_celltypes,
       guide = guide_legend(
         order = 2,
-        override.aes = list(size = 5, alpha = 1),
+        override.aes = list(
+          fill = celltype_colors,  # ✅ 图例中用填充色
+          color = NA,
+          alpha = 1,
+          size = 0.5
+        ),
         title.position = "top",
-        ncol = 1
+        title.hjust = 0,
+        ncol = 1,
+        byrow = TRUE,
+        keywidth = unit(legend_key_width, "cm"),
+        keyheight = unit(legend_key_height, "cm")
       )
     ) +
     
+    # ========================================
     # 新的scale用于density zones
+    # ========================================
     ggnewscale::new_scale_fill() +
     
-    # Layer 2: Zone填充
+    # Layer 2: Zone填充（半透明覆盖层）
     geom_raster(
       data = contour_data,
       aes(x = col, y = row, fill = density_zone),
-      alpha = 0.25,
+      alpha = 0.3,  # 适度透明，让底层 celltype 清晰可见
       interpolate = TRUE
     ) +
     scale_fill_manual(
       values = zone_colors,
       labels = zone_labels,
-      name = "Density Zones\n(Zone_0=Core Red → Zone_9=Outer Blue)",
+      name = "Density Zones\n(Zone_0 = Core Red → Zone_9 = Outer Blue)",
       breaks = zone_levels,
       na.value = "transparent",
+      drop = FALSE,
       guide = guide_legend(
         order = 1,
-        override.aes = list(alpha = 0.7),
+        override.aes = list(
+          alpha = 0.8,
+          color = "gray40",  # 添加边框使图例更清晰
+          linewidth = 0.3
+        ),
         title.position = "top",
-        ncol = 1
+        title.hjust = 0,
+        ncol = 1,
+        byrow = TRUE,
+        keywidth = unit(legend_key_width, "cm"),
+        keyheight = unit(legend_key_height, "cm")
       )
     ) +
     
+    # ========================================
     # 为等高线准备新的color scale
+    # ========================================
     ggnewscale::new_scale_color() +
     
-    # Layer 3: 等高线
+    # Layer 3: 等高线边界
     geom_contour(
       data = contour_data,
       aes(x = col, y = row, z = density_norm, color = after_stat(level)),
       breaks = contour_breaks,
-      linewidth = 0.5,
-      alpha = 0.7
+      linewidth = 0.6,
+      alpha = 0.8
     ) +
     scale_color_gradientn(
       colors = contour_colors,
@@ -192,34 +226,133 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       guide = "none"
     ) +
     
+    # ========================================
     # 坐标系统
-    scale_x_continuous(limits = col_limits, expand = c(0, 0)) +
-    scale_y_reverse(limits = rev(row_limits), expand = c(0, 0)) +
-    coord_fixed(ratio = 1, xlim = col_limits, ylim = rev(row_limits), clip = "off") +
-    
-    # 标题
-    labs(
-      title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
-      subtitle = sprintf("Bottom = Cell types | Middle = Density zones | Top = %d contour lines", 
-                        length(contour_breaks)),
-      x = NULL, y = NULL
+    # ========================================
+    scale_x_continuous(
+      limits = col_limits, 
+      expand = c(0, 0)
+    ) +
+    scale_y_reverse(
+      limits = rev(row_limits), 
+      expand = c(0, 0)
+    ) +
+    coord_fixed(
+      ratio = 1, 
+      xlim = col_limits, 
+      ylim = rev(row_limits), 
+      clip = "off"
     ) +
     
-    # 主题
+    # ========================================
+    # 标题和主题
+    # ========================================
+    labs(
+      title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
+      subtitle = sprintf("Bottom = Cell types | Middle = Density zones (α=0.3) | Top = %d contour lines", 
+                        length(contour_breaks)),
+      x = NULL, 
+      y = NULL
+    ) +
+    
     theme_void() +
     theme(
-      plot.title = element_text(hjust = 0.5, size = 16, face = "bold", margin = margin(b = 5)),
-      plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray30", margin = margin(b = 10)),
+      # 标题
+      plot.title = element_text(
+        hjust = 0.5, 
+        size = 16, 
+        face = "bold", 
+        margin = margin(b = 5)
+      ),
+      plot.subtitle = element_text(
+        hjust = 0.5, 
+        size = 9, 
+        color = "gray30", 
+        margin = margin(b = 10)
+      ),
+      
+      # 图例位置和排列
       legend.position = "right",
       legend.box = "vertical",
-      legend.title = element_text(size = 11, face = "bold"),
-      legend.text = element_text(size = 9.5),
-      legend.key.size = unit(0.8, "cm"),
-      legend.spacing.y = unit(0.5, "cm"),
-      plot.margin = margin(15, 25, 15, 15),
+      legend.box.just = "left",
+      legend.spacing.y = unit(0.6, "cm"),
+      
+      # ✅ 统一的图例样式
+      legend.title = element_text(
+        size = legend_title_size, 
+        face = "bold", 
+        hjust = 0, 
+        margin = margin(b = 8)
+      ),
+      legend.text = element_text(
+        size = legend_text_size, 
+        lineheight = 1.2,
+        margin = margin(l = 3, r = 5, t = 2, b = 2)
+      ),
+      legend.key = element_rect(
+        color = "gray60", 
+        fill = NA, 
+        linewidth = 0.3
+      ),
+      legend.key.spacing.y = unit(0.2, "cm"),
+      
+      # 图例背景
+      legend.background = element_rect(
+        fill = "white", 
+        color = "gray50", 
+        linewidth = 0.5
+      ),
+      legend.margin = margin(10, 10, 10, 10),
+      
+      # 整体边距
+      plot.margin = margin(15, 20, 15, 15),
       plot.background = element_rect(fill = "white", color = NA)
     )
   
   return(p)
+}
+
+# ========================================
+# 辅助函数
+# ========================================
+
+#' 生成 zone 颜色（红到蓝渐变）
+get_zone_colors <- function(n_zones) {
+  colorRampPalette(c(
+    "#B2182B",  # 深红（核心高密度）
+    "#EF8A62",  # 浅红
+    "#FDDBC7",  # 粉色
+    "#F7F7F7",  # 白色（中间）
+    "#D1E5F0",  # 浅蓝
+    "#67A9CF",  # 蓝色
+    "#2166AC"   # 深蓝（外围低密度）
+  ))(n_zones)
+}
+
+#' 生成等高线颜色（紫色渐变）
+get_contour_colors <- function(n_contours) {
+  colorRampPalette(c(
+    "#542788",  # 深紫
+    "#8073AC",  # 中紫
+    "#B2ABD2",  # 浅紫
+    "#D8DAEB"   # 淡紫
+  ))(n_contours)
+}
+
+#' 为细胞类型生成颜色
+get_celltype_colors <- function(celltypes) {
+  require(RColorBrewer)
+  n <- length(celltypes)
+  
+  if (n <= 3) {
+    colors <- brewer.pal(3, "Set2")[1:n]
+  } else if (n <= 12) {
+    colors <- brewer.pal(n, "Set3")
+  } else {
+    colors <- colorRampPalette(brewer.pal(12, "Set3"))(n)
+  }
+  
+  names(colors) <- celltypes
+  return(colors)
 }
 
