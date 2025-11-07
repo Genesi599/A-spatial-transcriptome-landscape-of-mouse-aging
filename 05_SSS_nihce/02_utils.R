@@ -152,3 +152,156 @@ filter_seurat_files <- function(files, config) {
   
   return(files)
 }
+
+# ========== 新增函数：坐标标准化 ==========
+standardize_spatial_coordinates <- function(seurat_obj) {
+  # 检查是否是 Seurat 对象
+  if (!inherits(seurat_obj, "Seurat")) {
+    stop("输入必须是 Seurat 对象")
+  }
+  
+  # 获取所有图像名称
+  image_names <- names(seurat_obj@images)
+  
+  if (length(image_names) == 0) {
+    warning("未找到空间图像数据")
+    return(seurat_obj)
+  }
+  
+  # 定义可能的坐标列名
+  possible_row_names <- c("row", "imagerow", "array_row", "tissue_row", "pxl_row_in_fullres")
+  possible_col_names <- c("col", "imagecol", "array_col", "tissue_col", "pxl_col_in_fullres")
+  
+  cat(sprintf(">> 检查 %d 个图像的坐标系统...\n", length(image_names)))
+  
+  coord_issues <- 0
+  
+  for (img_name in image_names) {
+    img_obj <- seurat_obj@images[[img_name]]
+    
+    # 检查是否有 coordinates 槽
+    if (!"coordinates" %in% slotNames(img_obj)) {
+      warning(sprintf("图像 '%s' 没有 coordinates 槽", img_name))
+      coord_issues <- coord_issues + 1
+      next
+    }
+    
+    coords <- img_obj@coordinates
+    coord_cols <- colnames(coords)
+    
+    # 检查是否已经有标准的 row/col 列
+    has_row <- "row" %in% coord_cols
+    has_col <- "col" %in% coord_cols
+    
+    if (has_row && has_col) {
+      # 已经有标准列名，跳过
+      next
+    }
+    
+    # 查找实际的行列名
+    actual_row_name <- intersect(coord_cols, possible_row_names)[1]
+    actual_col_name <- intersect(coord_cols, possible_col_names)[1]
+    
+    if (is.na(actual_row_name) || is.na(actual_col_name)) {
+      warning(sprintf(
+        "图像 '%s' 未找到有效的坐标列。\n可用列: %s", 
+        img_name, 
+        paste(coord_cols, collapse=", ")
+      ))
+      coord_issues <- coord_issues + 1
+      next
+    }
+    
+    # 标准化列名
+    if (!has_row) {
+      coords$row <- coords[[actual_row_name]]
+      cat(sprintf("   %s: %s → row\n", img_name, actual_row_name))
+    }
+    
+    if (!has_col) {
+      coords$col <- coords[[actual_col_name]]
+      cat(sprintf("   %s: %s → col\n", img_name, actual_col_name))
+    }
+    
+    # 验证坐标值
+    if (any(is.na(coords$row)) || any(is.na(coords$col))) {
+      warning(sprintf("图像 '%s' 包含 NA 坐标值", img_name))
+      coord_issues <- coord_issues + 1
+    }
+    
+    # 更新坐标
+    seurat_obj@images[[img_name]]@coordinates <- coords
+  }
+  
+  if (coord_issues > 0) {
+    warning(sprintf("发现 %d 个图像存在坐标问题", coord_issues))
+  }
+  
+  return(seurat_obj)
+}
+
+
+# ========== 新增函数：诊断坐标信息 ==========
+diagnose_spatial_coordinates <- function(seurat_obj) {
+  cat("\n")
+  cat("═══════════════════════════════════════════════════════════\n")
+  cat("           空间坐标诊断报告\n")
+  cat("═══════════════════════════════════════════════════════════\n\n")
+  
+  image_names <- names(seurat_obj@images)
+  
+  if (length(image_names) == 0) {
+    cat("❌ 未找到空间图像数据\n\n")
+    return(invisible(NULL))
+  }
+  
+  cat(sprintf("总图像数: %d\n\n", length(image_names)))
+  
+  for (i in seq_along(image_names)) {
+    img_name <- image_names[i]
+    cat(sprintf("[%d/%d] 图像: %s\n", i, length(image_names), img_name))
+    cat("─────────────────────────────────────────────────────────\n")
+    
+    img_obj <- seurat_obj@images[[img_name]]
+    
+    if (!"coordinates" %in% slotNames(img_obj)) {
+      cat("   ❌ 没有 coordinates 槽\n\n")
+      next
+    }
+    
+    coords <- img_obj@coordinates
+    
+    cat(sprintf("   细胞数: %d\n", nrow(coords)))
+    cat(sprintf("   坐标列: %s\n", paste(colnames(coords), collapse=", ")))
+    
+    # 检查标准列
+    has_row <- "row" %in% colnames(coords)
+    has_col <- "col" %in% colnames(coords)
+    
+    cat(sprintf("   标准列: row=%s, col=%s\n", 
+                ifelse(has_row, "✓", "✗"),
+                ifelse(has_col, "✓", "✗")))
+    
+    # 显示坐标范围
+    if (has_row && has_col) {
+      cat(sprintf("   坐标范围:\n"))
+      cat(sprintf("      row: [%.1f, %.1f]\n", 
+                  min(coords$row, na.rm=TRUE), 
+                  max(coords$row, na.rm=TRUE)))
+      cat(sprintf("      col: [%.1f, %.1f]\n", 
+                  min(coords$col, na.rm=TRUE), 
+                  max(coords$col, na.rm=TRUE)))
+      
+      # 检查 NA 值
+      na_row <- sum(is.na(coords$row))
+      na_col <- sum(is.na(coords$col))
+      if (na_row > 0 || na_col > 0) {
+        cat(sprintf("   ⚠️  NA值: row=%d, col=%d\n", na_row, na_col))
+      }
+    }
+    
+    cat("\n")
+  }
+  
+  cat("═══════════════════════════════════════════════════════════\n\n")
+}
