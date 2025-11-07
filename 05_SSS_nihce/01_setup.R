@@ -164,29 +164,30 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
   cat("   并行计算配置\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
-  # ---------------------------
-  # 1. 设置 future 并行策略
-  # ---------------------------
-  future::plan(future::sequential)  # 先重置为串行
+  # 设置 future 并行策略
+  future::plan(future::sequential)
   
   cat(sprintf("🔧 并行线程数: %d\n", n_workers))
   cat(sprintf("💾 内存限制: %d GB\n", memory_limit))
   
-  # ---------------------------
-  # 2. 设置全局选项
-  # ---------------------------
+  # 设置全局选项
   options(
-    future.globals.maxSize = Inf,  # 取消对象大小限制
-    future.rng.onMisuse = "ignore"  # 忽略随机数警告
+    future.globals.maxSize = Inf,
+    future.rng.onMisuse = "ignore"
   )
   
   cat("✓ future 全局选项已设置\n")
   
-  # ---------------------------
-  # 3. 设置 progressr handlers（全局唯一设置）
-  # ---------------------------
+  # ✅ 修复：只设置一次，使用全局模式
+  progressr::handlers(
+    progressr::handler_progress(
+      format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
+      width    = 80,
+      complete = "=",
+      clear    = FALSE
+    )
+  )
   progressr::handlers(global = TRUE)
-  progressr::handlers("txtprogressbar")
   
   cat("✓ progressr 进度条已启用\n\n")
   

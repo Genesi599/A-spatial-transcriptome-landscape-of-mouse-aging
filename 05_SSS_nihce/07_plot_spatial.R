@@ -71,25 +71,6 @@ plot_spatial_gradient <- function(sample_list,
   start_time <- Sys.time()
   
   # ========================================
-  # 3. 设置进度条
-  # ========================================
-  
-  # 检查是否已经设置了 handlers
-  has_handlers <- !is.null(progressr::handlers(NULL))
-  
-  if (!has_handlers) {
-    # 如果没有设置，使用详细的进度条
-    progressr::handlers(list(
-      progressr::handler_progress(
-        format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
-        width    = 80,
-        complete = "=",
-        clear    = FALSE
-      )
-    ))
-  }
-  
-  # ========================================
   # 4. 并行绘图
   # ========================================
   

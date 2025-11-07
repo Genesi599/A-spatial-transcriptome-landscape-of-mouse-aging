@@ -91,24 +91,17 @@ analyze_celltype_niche <- function(
   # ========================================
   # 3. 设置并行和进度条
   # ========================================
-  
+
+  # 设置多线程并行（局部设置，函数结束后可恢复）
   future::plan(future::multisession, workers = n_workers)
   options(future.globals.maxSize = Inf)
-  
-  # 设置进度条
-  has_handlers <- !is.null(progressr::handlers(NULL))
-  
-  if (!has_handlers) {
-    progressr::handlers(list(
-      progressr::handler_progress(
-        format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
-        width    = 80,
-        complete = "=",
-        clear    = FALSE
-      )
-    ))
+
+  # 进度条已在 setup_parallel() 中全局设置，这里不需要重复配置
+  # 只做检查以确保进度条可用
+  if (is.null(progressr::handlers(NULL))) {
+    warning("⚠️  未检测到进度条设置，请确保已运行 setup_parallel()")
   }
-  
+
   start_time <- Sys.time()
   
   # ========================================
