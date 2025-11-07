@@ -123,8 +123,13 @@ plot_isoheight <- function(seurat_obj,
   # 3. 并行处理（传递小对象）
   # ========================================
   
-  handlers(global = TRUE)
-  handlers("txtprogressbar")
+  # 【修改】条件设置 handlers
+  has_handlers <- !is.null(progressr::handlers(NULL))
+
+  if (!has_handlers) {
+    handlers(global = TRUE)
+    handlers("txtprogressbar")
+  }
   
   with_progress({
     p <- progressor(steps = length(sample_list))
