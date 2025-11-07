@@ -1,127 +1,107 @@
+#!/usr/bin/env Rscript
 # ===================================================================
-# 精确修复 calculate_density_zones 中的 filter
+# diagnose.R - 诊断 filter 冲突问题
+# Usage: Rscript diagnose.R
 # ===================================================================
 
-fix_density_zones <- function() {
+cat("\n🔍 诊断 filter 冲突问题...\n\n")
+
+# 检查包加载顺序
+cat("1. 检查已加载的包:\n")
+cat("─────────────────────────────────────────\n")
+loaded_packages <- search()
+cat(paste(loaded_packages, collapse = "\n"))
+cat("\n\n")
+
+# 检查 filter 函数来源
+cat("2. 检查 filter 函数来源:\n")
+cat("─────────────────────────────────────────\n")
+
+if (exists("filter")) {
+  cat(sprintf("filter 存在: %s\n", class(filter)))
   
-  file <- "08_plot_celltype_utils/02_density_zones.R"
-  
-  if (!file.exists(file)) {
-    stop("❌ 文件不存在: ", file)
+  # 查找所有 filter 函数
+  filter_locations <- find("filter")
+  cat("filter 可能的来源:\n")
+  for (loc in filter_locations) {
+    cat(sprintf("  - %s\n", loc))
   }
-  
-  cat(sprintf("🔍 检查文件: %s\n\n", file))
-  
-  # 备份
-  backup <- paste0(file, ".backup.", format(Sys.time(), "%Y%m%d_%H%M%S"))
-  file.copy(file, backup)
-  cat(sprintf("💾 备份: %s\n\n", basename(backup)))
-  
-  # 读取
-  lines <- readLines(file, warn = FALSE)
-  original_lines <- lines
-  
-  # 显示所有包含 filter 的行（修复前）
-  cat("🔍 修复前的 filter 调用:\n")
-  cat(paste(rep("─", 70), collapse = ""), "\n")
-  
-  for (i in seq_along(lines)) {
-    if (grepl("filter\\s*\\(", lines[i], perl = TRUE) && 
-        !grepl("^\\s*#", lines[i])) {
-      cat(sprintf("%4d: %s\n", i, trimws(lines[i])))
-    }
-  }
-  cat(paste(rep("─", 70), collapse = ""), "\n\n")
-  
-  # 修复模式
-  fixes <- list(
-    # filter( -> dplyr::filter(
-    list(
-      name = "filter",
-      pattern = "([^:_a-zA-Z0-9])filter\\s*\\(",
-      replacement = "\\1dplyr::filter("
-    ),
-    # select( -> dplyr::select(
-    list(
-      name = "select",
-      pattern = "([^:_a-zA-Z0-9])select\\s*\\(",
-      replacement = "\\1dplyr::select("
-    ),
-    # mutate( -> dplyr::mutate(
-    list(
-      name = "mutate",
-      pattern = "([^:_a-zA-Z0-9])mutate\\s*\\(",
-      replacement = "\\1dplyr::mutate("
-    ),
-    # left_join( -> dplyr::left_join(
-    list(
-      name = "left_join",
-      pattern = "([^:_a-zA-Z0-9])left_join\\s*\\(",
-      replacement = "\\1dplyr::left_join("
-    ),
-    # group_by( -> dplyr::group_by(
-    list(
-      name = "group_by",
-      pattern = "([^:_a-zA-Z0-9])group_by\\s*\\(",
-      replacement = "\\1dplyr::group_by("
-    ),
-    # summarize( -> dplyr::summarize(
-    list(
-      name = "summarize",
-      pattern = "([^:_a-zA-Z0-9])summarize\\s*\\(",
-      replacement = "\\1dplyr::summarize("
-    ),
-    # arrange( -> dplyr::arrange(
-    list(
-      name = "arrange",
-      pattern = "([^:_a-zA-Z0-9])arrange\\s*\\(",
-      replacement = "\\1dplyr::arrange("
-    )
-  )
-  
-  # 应用所有修复
-  for (fix in fixes) {
-    lines <- gsub(fix$pattern, fix$replacement, lines, perl = TRUE)
-  }
-  
-  # 显示修复后的结果
-  cat("✅ 修复后的 filter 调用:\n")
-  cat(paste(rep("─", 70), collapse = ""), "\n")
-  
-  for (i in seq_along(lines)) {
-    if (grepl("filter\\s*\\(", lines[i], perl = TRUE) && 
-        !grepl("^\\s*#", lines[i])) {
-      cat(sprintf("%4d: %s\n", i, trimws(lines[i])))
-    }
-  }
-  cat(paste(rep("─", 70), collapse = ""), "\n\n")
-  
-  # 统计变化
-  n_changes <- sum(lines != original_lines)
-  
-  if (n_changes == 0) {
-    cat("ℹ️  文件无需修改\n\n")
-    return(invisible(NULL))
-  }
-  
-  # 写回文件
-  writeLines(lines, file)
-  
-  cat(sprintf("✅ 已修复 %d 行\n", n_changes))
-  cat(sprintf("📁 文件: %s\n", file))
-  cat(sprintf("💾 备份: %s\n\n", backup))
-  
-  return(invisible(list(
-    file = file,
-    changes = n_changes,
-    backup = backup
-  )))
+} else {
+  cat("filter 未定义\n")
 }
 
-# 执行修复
-fix_density_zones()
+cat("\n")
 
-cat("🔧 修复完成！现在重新运行:\n")
-cat("   .rs.restartR()\n")
-cat("   source('main.R')\n")
-cat("   main_batch()\n\n")
+# 检查 dplyr 是否加载
+cat("3. 检查 dplyr:\n")
+cat("─────────────────────────────────────────\n")
+if ("package:dplyr" %in% search()) {
+  cat("✅ dplyr 已加载\n")
+  cat(sprintf("   版本: %s\n", packageVersion("dplyr")))
+} else {
+  cat("❌ dplyr 未加载\n")
+}
+
+cat("\n")
+
+# 检查 MASS 是否加载
+cat("4. 检查 MASS:\n")
+cat("─────────────────────────────────────────\n")
+if ("package:MASS" %in% search()) {
+  cat("⚠️  MASS 已加载（可能覆盖 dplyr::select）\n")
+  cat(sprintf("   版本: %s\n", packageVersion("MASS")))
+  cat("\n   建议：使用 MASS::kde2d 而不是 library(MASS)\n")
+} else {
+  cat("✅ MASS 未加载\n")
+}
+
+cat("\n")
+
+# 检查是否有命名冲突
+cat("5. 检查函数冲突:\n")
+cat("─────────────────────────────────────────\n")
+
+conflicts <- conflicts(detail = TRUE)
+if (length(conflicts) > 0) {
+  for (func_name in names(conflicts)) {
+    cat(sprintf("⚠️  %s 存在冲突:\n", func_name))
+    for (pkg in conflicts[[func_name]]) {
+      cat(sprintf("   - %s\n", pkg))
+    }
+  }
+} else {
+  cat("✅ 未发现函数冲突\n")
+}
+
+cat("\n")
+
+# 测试 filter 是否工作
+cat("6. 测试 filter 功能:\n")
+cat("─────────────────────────────────────────\n")
+
+test_df <- data.frame(x = 1:5, y = letters[1:5])
+
+# 测试1: 直接使用 filter
+test1_result <- tryCatch({
+  if (requireNamespace("dplyr", quietly = TRUE)) {
+    result <- dplyr::filter(test_df, x > 2)
+    sprintf("✅ dplyr::filter() 工作正常 (返回 %d 行)", nrow(result))
+  } else {
+    "❌ dplyr 未安装"
+  }
+}, error = function(e) {
+  sprintf("❌ dplyr::filter() 失败: %s", e$message)
+})
+
+cat(paste0("  ", test1_result, "\n"))
+
+cat("\n")
+
+cat("╔═══════════════════════════════════════════════════════════╗\n")
+cat("║  诊断完成                                               ║\n")
+cat("╚═══════════════════════════════════════════════════════════╝\n\n")
+
+cat("💡 建议:\n")
+cat("   1. 先运行: Rscript fix_filter_issues.R\n")
+cat("   2. 确保 main.R 中先加载 dplyr，后使用 MASS::kde2d\n")
+cat("   3. 如果还有问题，检查 main.R 的包加载顺序\n\n")
