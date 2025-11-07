@@ -12,6 +12,32 @@
 # ===================================================================
 
 # ===================================================================
+# 🔧 强制使用 dplyr 函数（全局修复）
+# ===================================================================
+
+suppressPackageStartupMessages({
+  library(dplyr)
+  library(tibble)
+})
+
+# 全局覆盖（确保在任何地方都使用 dplyr 版本）
+filter <- dplyr::filter
+select <- dplyr::select
+mutate <- dplyr::mutate
+arrange <- dplyr::arrange
+group_by <- dplyr::group_by
+summarize <- dplyr::summarize
+summarise <- dplyr::summarise
+left_join <- dplyr::left_join
+right_join <- dplyr::right_join
+inner_join <- dplyr::inner_join
+full_join <- dplyr::full_join
+rownames_to_column <- tibble::rownames_to_column
+column_to_rownames <- tibble::column_to_rownames
+
+cat("✅ 已全局设置 dplyr/tibble 函数\n\n")
+
+# ===================================================================
 # 加载配置和模块
 # ===================================================================
 options(error = function() {

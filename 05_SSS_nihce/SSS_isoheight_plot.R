@@ -11,7 +11,7 @@ GetAllCoordinates <- function(.data) {
                     cols = c("row", "col"),
                     scale = NULL
                 ) %>%
-            rownames_to_column(var = "cellid")
+            tibble::rownames_to_column(var = "cellid")
         })
 }
 
@@ -35,8 +35,8 @@ celltype_isoheight_plot <- function(
     density_top  <- enquo(density_top)
 
     df <- .data@meta.data %>%
-        rownames_to_column("cellid") %>%
-        inner_join(GetAllCoordinates(.data)) %>%
+        tibble::rownames_to_column("cellid") %>%
+        dplyr::inner_join(GetAllCoordinates(.data)) %>%
         as_tibble()
 
     # ✅ 计算坐标范围并扩展
@@ -63,7 +63,7 @@ celltype_isoheight_plot <- function(
         
         # 2. 密度热图 (关键：设置 bins 和 expand)
         stat_density_2d_filled(
-            data = df %>% filter(!!density_top),
+            data = df %>% dplyr::filter(!!density_top),
             mapping = aes(fill = after_stat(ndensity)),
             geom = "raster", 
             contour = FALSE,
@@ -81,7 +81,7 @@ celltype_isoheight_plot <- function(
         
         # 3. 等高线
         geom_density_2d(
-            data = df %>% filter(!!density_top),
+            data = df %>% dplyr::filter(!!density_top),
             color = col_isoheight,
             contour_var = "ndensity",
             bins = 10,    # ✅ 等高线数量
@@ -90,7 +90,7 @@ celltype_isoheight_plot <- function(
         
         # 4. 高亮点
         geom_point(
-            data = df %>% filter(!!density_top),
+            data = df %>% dplyr::filter(!!density_top),
             color = col_top, alpha = 0.5, size = size_top
         ) +
         

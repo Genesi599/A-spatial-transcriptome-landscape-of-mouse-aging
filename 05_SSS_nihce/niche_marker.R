@@ -112,8 +112,8 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN) {
   if (nrow(intra_df) > 0) {
     # 准备所有细胞的坐标
     all_df <- df %>%
-      column_to_rownames("cellid") %>%
-      select(row, col)
+      tibble::column_to_rownames("cellid") %>%
+      dplyr::select(row, col)
 
     cat(sprintf("  计算距离矩阵: %d 个查询点 × %d 个标记点\n", 
                 nrow(all_df), nrow(intra_df)))
@@ -138,17 +138,17 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN) {
 
     # 合并回原始数据
     res <- df %>%
-      left_join(spot_dist, by = "cellid")
+      dplyr::left_join(spot_dist, by = "cellid")
 
   } else {
     # 没有标记点，所有距离设为 Inf
     cat("  ⚠️ 警告：没有找到标记点，Distance 设为 Inf\n")
     res <- df %>%
-      mutate(!!spot_type := Inf)
+      dplyr::mutate(!!spot_type := Inf)
   }
 
   # 移除坐标列
-  res %>% select(-c(row, col))
+  res %>% dplyr::select(-c(row, col))
 }
 
 
@@ -233,8 +233,8 @@ niche_marker <- function(
   # ========== 合并 metadata 和坐标 ==========
   cat("\n🔄 合并 metadata 和坐标...\n")
   meta_with_coords <- .data@meta.data %>%
-    rownames_to_column(var = "cellid") %>%
-    left_join(all_coords, by = "cellid")
+    tibble::rownames_to_column(var = "cellid") %>%
+    dplyr::left_join(all_coords, by = "cellid")
   
   # 验证合并结果
   n_missing_coords <- sum(is.na(meta_with_coords$row) | is.na(meta_with_coords$col))
@@ -248,7 +248,7 @@ niche_marker <- function(
   
   # 分组
   sample_groups <- meta_with_coords %>%
-    group_by(.data[[slide]]) %>%
+    dplyr::group_by(.data[[slide]]) %>%
     group_split()
   
   cat(sprintf(">> 将处理 %d 个样本\n\n", length(sample_groups)))
@@ -261,9 +261,9 @@ niche_marker <- function(
     
     # 提取标记点
     intra_df <- df %>%
-      filter(!is.na(.data[[marker]]) & .data[[marker]] == TRUE) %>%
-      column_to_rownames("cellid") %>%
-      select(row, col)
+      dplyr::filter(!is.na(.data[[marker]]) & .data[[marker]] == TRUE) %>%
+      tibble::column_to_rownames("cellid") %>%
+      dplyr::select(row, col)
     
     n_sample <- nrow(df)
     n_marker_sample <- nrow(intra_df)
@@ -292,7 +292,7 @@ niche_marker <- function(
   
   # 将结果转换为以 cellid 为行名的 data.frame
   combined_results <- combined_results %>%
-    column_to_rownames(var = "cellid")
+    tibble::column_to_rownames(var = "cellid")
 
   # ========== 恢复原始细胞顺序 ==========
   cat("\n🔄 恢复原始细胞顺序...\n")

@@ -11,7 +11,7 @@ GetAllCoordinates <- function(.data) {
                     cols = c("row", "col"),
                     scale = NULL
                 ) %>%
-            rownames_to_column(var = "cellid")
+            tibble::rownames_to_column(var = "cellid")
         })
 }
 
@@ -23,8 +23,8 @@ GetAllCoordinates <- function(.data) {
 
 image_spot_neighbors_count <- function(meta.data, celltype_col, neighbor_range, ...) {
     .sample_coord <- meta.data %>%
-        select(row,col,!!celltype_col, ...) %>%
-        mutate(.celltype = as.numeric(factor(!!celltype_col)))
+        dplyr::select(row,col,!!celltype_col, ...) %>%
+        dplyr::mutate(.celltype = as.numeric(factor(!!celltype_col)))
     # print(head(.sample_coord))
         
     # build celltype matrix
@@ -39,7 +39,7 @@ image_spot_neighbors_count <- function(meta.data, celltype_col, neighbor_range, 
 
     # count
     .sample_coord %>%
-        mutate(
+        dplyr::mutate(
             neighbors = map2(row, col, ~{
                 .celltype_code <- .celltype_mat[
                         max(0, .x - neighbor_range):min(.x + neighbor_range, dim(.celltype_mat)[1]),
@@ -101,15 +101,15 @@ niche_grade_entropy <- function(
     # Get Coordinates
     if(!("col" %in% colnames(df) && "row" %in% colnames(df))) {
         df <- df %>%
-            left_join(
+            dplyr::left_join(
                 GetAllCoordinates(.data)
             )
     }
     # spot2niche
     df <- df %>%
-        group_by(age, orig.ident) %>%
+        dplyr::group_by(age, orig.ident) %>%
         group_nest() %>%
-        mutate(
+        dplyr::mutate(
             data = future_lapply(data, function(df) {
                 image_spot_neighbors_count(
                     df,
@@ -120,17 +120,17 @@ niche_grade_entropy <- function(
             }, future.chunk.size = Inf)
         ) %>%
         unnest(data) %>%
-        filter(!is.na(!!roi_col)) %>%
-        group_by(age, !!roi_col) %>%
-        mutate(min_roi_spot_num = n())
+        dplyr::filter(!is.na(!!roi_col)) %>%
+        dplyr::group_by(age, !!roi_col) %>%
+        dplyr::mutate(min_roi_spot_num = n())
     # get roi_min_spot_num
     df$min_roi_spot_num <- min(df$min_roi_spot_num)
 
     # get entropy
     df <- df %>%
-        group_by(age, !!roi_col, min_roi_spot_num) %>%
+        dplyr::group_by(age, !!roi_col, min_roi_spot_num) %>%
         group_nest() %>%
-        mutate(
+        dplyr::mutate(
             data = map2(data, min_roi_spot_num, ~{
                 message("")
                 message(str_c("## sample spot num: ", .y))
@@ -143,17 +143,17 @@ niche_grade_entropy <- function(
                     future_lapply(function(idx) {
                         data %>%
                             slice_sample(n = min_roi_spot_num) %>%
-                            group_by(!!celltype_col, .celltype, neighbors) %>%
-                            summarise(f_ij = n()) %>%
+                            dplyr::group_by(!!celltype_col, .celltype, neighbors) %>%
+                            dplyr::summarise(f_ij = n()) %>%
                             ungroup() %>%
-                            mutate(
+                            dplyr::mutate(
                                 p_ij = f_ij / sum(f_ij),
                                 entropy_ij = - p_ij * log2(p_ij),
                                 condition = n()
                             ) %>%
-                            group_by(condition) %>%
-                            summarise(entropy = sum(entropy_ij)) %>%
-                            mutate(
+                            dplyr::group_by(condition) %>%
+                            dplyr::summarise(entropy = sum(entropy_ij)) %>%
+                            dplyr::mutate(
                                 rep_idx = idx,
                                 Pielou = entropy / log(condition))
                     }, future.chunk.size = Inf, future.seed = TRUE) %>%
