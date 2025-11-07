@@ -1,8 +1,14 @@
 #!/usr/bin/env Rscript
 # ===================================================================
-# 等高线密度图绘制模块（优化版）
+# 等高线密度图绘制模块（优化版 + 进度条）
 # 功能：多线程并行绘制 Clock Gene 等高线密度图
 # ===================================================================
+
+library(future)
+library(future.apply)
+library(progressr)
+library(ggplot2)
+
 
 #' 绘制等高线密度图（接收预切分样本）
 #'
@@ -83,12 +89,36 @@ plot_isoheight <- function(sample_list,
   start_time <- Sys.time()
   
   # ========================================
-  # 3. 并行绘图
+  # 3. 设置进度条
   # ========================================
+  
+  # 检查是否已经设置了 handlers
+  has_handlers <- !is.null(progressr::handlers(NULL))
+  
+  if (!has_handlers) {
+    # 如果没有设置，使用详细的进度条
+    progressr::handlers(list(
+      progressr::handler_progress(
+        format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
+        width    = 80,
+        complete = "=",
+        clear    = FALSE
+      )
+    ))
+  }
+  
+  # ========================================
+  # 4. 并行绘图
+  # ========================================
+  
+  cat("🎨 开始绘图...\n\n")
   
   progressr::with_progress({
     
-    p <- progressr::progressor(steps = length(sample_list))
+    p <- progressr::progressor(
+      steps = length(sample_list),
+      message = "绘制等高线图"
+    )
     
     results <- future.apply::future_lapply(
       
@@ -163,7 +193,8 @@ plot_isoheight <- function(sample_list,
           n_spots <- ncol(seurat_subset)
           high_pct <- 100 * n_high / n_spots
           
-          p(message = sprintf("✅ %s", sample_id))
+          # 更新进度（显示样本名）
+          p(message = sprintf("✅ %s (%.2f MB)", sample_id, file_size_mb))
           
           return(list(
             sample = sample_id,
@@ -197,7 +228,7 @@ plot_isoheight <- function(sample_list,
   future::plan(future::sequential)
   
   # ========================================
-  # 4. 统计输出
+  # 5. 统计输出
   # ========================================
   
   n_success <- sum(sapply(results, function(x) x$success))
@@ -208,7 +239,10 @@ plot_isoheight <- function(sample_list,
   cat("   绘图完成\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
-  cat(sprintf("✅ 成功: %d/%d\n", n_success, length(sample_list)))
+  cat(sprintf("✅ 成功: %d/%d (%.1f%%)\n", 
+              n_success, 
+              length(sample_list),
+              100 * n_success / length(sample_list)))
   
   if (n_failed > 0) {
     cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, length(sample_list)))
@@ -227,6 +261,8 @@ plot_isoheight <- function(sample_list,
                 "样本", "Spots", "High", "High%", "文件大小"))
     cat(paste(rep("-", 80), collapse = ""), "\n")
     
+    total_file_size <- 0
+    
     for (res in results) {
       if (res$success) {
         cat(sprintf("%-30s %10d %10d %9.1f%% %8.2f MB\n",
@@ -235,8 +271,13 @@ plot_isoheight <- function(sample_list,
                     res$n_high,
                     res$high_pct,
                     res$file_size_mb))
+        total_file_size <- total_file_size + res$file_size_mb
       }
     }
+    
+    cat(paste(rep("-", 80), collapse = ""), "\n")
+    cat(sprintf("%-30s %10s %10s %10s %8.2f MB\n",
+                "总计", "", "", "", total_file_size))
     cat("\n")
   }
   
@@ -247,7 +288,7 @@ plot_isoheight <- function(sample_list,
   cat("\n═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
-  # 5. 返回结果
+  # 6. 返回结果
   # ========================================
   
   return(invisible(list(

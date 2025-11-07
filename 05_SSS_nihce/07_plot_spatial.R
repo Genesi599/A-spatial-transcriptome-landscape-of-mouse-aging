@@ -1,8 +1,14 @@
 #!/usr/bin/env Rscript
 # ===================================================================
-# 空间梯度图绘制模块
+# 空间梯度图绘制模块（优化版 + 进度条）
 # 功能：绘制 Clock Gene 距离场的空间分布图
 # ===================================================================
+
+library(future)
+library(future.apply)
+library(progressr)
+library(ggplot2)
+
 
 #' 绘制空间梯度图
 #'
@@ -65,12 +71,36 @@ plot_spatial_gradient <- function(sample_list,
   start_time <- Sys.time()
   
   # ========================================
-  # 3. 并行绘图
+  # 3. 设置进度条
   # ========================================
+  
+  # 检查是否已经设置了 handlers
+  has_handlers <- !is.null(progressr::handlers(NULL))
+  
+  if (!has_handlers) {
+    # 如果没有设置，使用详细的进度条
+    progressr::handlers(list(
+      progressr::handler_progress(
+        format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
+        width    = 80,
+        complete = "=",
+        clear    = FALSE
+      )
+    ))
+  }
+  
+  # ========================================
+  # 4. 并行绘图
+  # ========================================
+  
+  cat("🗺️  开始绘图...\n\n")
   
   progressr::with_progress({
     
-    p <- progressr::progressor(steps = length(sample_list))
+    p <- progressr::progressor(
+      steps = length(sample_list),
+      message = "绘制空间梯度图"
+    )
     
     results <- future.apply::future_lapply(
       
@@ -118,7 +148,8 @@ plot_spatial_gradient <- function(sample_list,
             min = min(distance_values, na.rm = TRUE),
             max = max(distance_values, na.rm = TRUE),
             mean = mean(distance_values, na.rm = TRUE),
-            median = median(distance_values, na.rm = TRUE)
+            median = median(distance_values, na.rm = TRUE),
+            sd = sd(distance_values, na.rm = TRUE)
           )
           
           # 绘制空间分布图
@@ -171,7 +202,8 @@ plot_spatial_gradient <- function(sample_list,
           file_size_mb <- file.size(output_path) / 1024^2
           n_spots <- ncol(seurat_subset)
           
-          p(message = sprintf("✅ %s", sample_id))
+          # 更新进度（显示样本名和文件大小）
+          p(message = sprintf("✅ %s (%.2f MB)", sample_id, file_size_mb))
           
           return(list(
             sample = sample_id,
@@ -204,7 +236,7 @@ plot_spatial_gradient <- function(sample_list,
   future::plan(future::sequential)
   
   # ========================================
-  # 4. 统计输出
+  # 5. 统计输出
   # ========================================
   
   n_success <- sum(sapply(results, function(x) x$success))
@@ -215,7 +247,10 @@ plot_spatial_gradient <- function(sample_list,
   cat("   绘图完成\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
-  cat(sprintf("✅ 成功: %d/%d\n", n_success, length(sample_list)))
+  cat(sprintf("✅ 成功: %d/%d (%.1f%%)\n", 
+              n_success, 
+              length(sample_list),
+              100 * n_success / length(sample_list)))
   
   if (n_failed > 0) {
     cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, length(sample_list)))
@@ -230,20 +265,59 @@ plot_spatial_gradient <- function(sample_list,
   
   if (n_success > 0) {
     cat("成功样本:\n")
-    cat(sprintf("%-30s %10s %15s %15s %10s\n", 
-                "样本", "Spots", "平均距离", "中位距离", "文件大小"))
-    cat(paste(rep("-", 85), collapse = ""), "\n")
+    cat(sprintf("%-30s %10s %12s %12s %12s %10s\n", 
+                "样本", "Spots", "平均距离", "中位距离", "标准差", "文件大小"))
+    cat(paste(rep("-", 95), collapse = ""), "\n")
+    
+    total_file_size <- 0
+    total_spots <- 0
+    all_means <- c()
+    all_medians <- c()
     
     for (res in results) {
       if (res$success) {
-        cat(sprintf("%-30s %10d %15.2f %15.2f %8.2f MB\n",
+        cat(sprintf("%-30s %10d %12.2f %12.2f %12.2f %8.2f MB\n",
                     res$sample,
                     res$n_spots,
                     res$distance_stats$mean,
                     res$distance_stats$median,
+                    res$distance_stats$sd,
                     res$file_size_mb))
+        
+        total_file_size <- total_file_size + res$file_size_mb
+        total_spots <- total_spots + res$n_spots
+        all_means <- c(all_means, res$distance_stats$mean)
+        all_medians <- c(all_medians, res$distance_stats$median)
       }
     }
+    
+    cat(paste(rep("-", 95), collapse = ""), "\n")
+    
+    if (n_success > 1) {
+      cat(sprintf("%-30s %10d %12.2f %12.2f %12s %8.2f MB\n",
+                  "平均",
+                  as.integer(total_spots / n_success),
+                  mean(all_means),
+                  mean(all_medians),
+                  "-",
+                  total_file_size / n_success))
+      cat(sprintf("%-30s %10d %12s %12s %12s %8.2f MB\n",
+                  "总计",
+                  total_spots,
+                  "-",
+                  "-",
+                  "-",
+                  total_file_size))
+    } else {
+      cat(sprintf("%-30s %10s %12s %12s %12s %8.2f MB\n",
+                  "总计",
+                  "",
+                  "",
+                  "",
+                  "",
+                  total_file_size))
+    }
+    
     cat("\n")
   }
   
@@ -254,7 +328,7 @@ plot_spatial_gradient <- function(sample_list,
   cat("\n═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
-  # 5. 返回结果
+  # 6. 返回结果
   # ========================================
   
   return(invisible(list(
