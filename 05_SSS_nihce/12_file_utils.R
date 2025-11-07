@@ -179,11 +179,6 @@ update_config_paths <- function(config) {
     metadata = config$metadata_dir,
     isoheight = file.path(config$figure_dir, "isoheight"),
     spatial = file.path(config$figure_dir, "spatial"),
-    overlay = file.path(config$figure_dir, "isoheight", "01_overlay_plots"),
-    celltype = file.path(config$figure_dir, "isoheight", "02_celltype_only"),
-    composition = file.path(config$figure_dir, "isoheight", "03_composition_stats"),
-    heatmaps = file.path(config$figure_dir, "isoheight", "04_heatmaps"),
-    combined = file.path(config$figure_dir, "isoheight", "05_combined_analysis")
   )
   
   return(config)
