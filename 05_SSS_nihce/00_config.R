@@ -1,9 +1,4 @@
-# 00_config.R
-
-#!/usr/bin/env Rscript
-# ===================================================================
-# 配置参数
-# ===================================================================
+# 00_config.R (添加缓存设置)
 
 CONFIG <- list(
   # ===== 路径设置 =====
@@ -13,27 +8,20 @@ CONFIG <- list(
   # 数据路径
   gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/NET_gene_list_mouse.txt",
   
+  # ✅ 缓存路径（新增）
+  cache_dir = "/dellstorage09/quj_lab/yanghang/spatial/cache",
+  
   # ===== 批量处理设置 =====
-  batch_mode = FALSE,  # TRUE: 批量处理模式, FALSE: 单文件模式
-  
-  # 单文件模式（当 batch_mode = FALSE 时使用）
+  batch_mode = FALSE,
   seurat_path = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds/Lung_2-25M.rds",
-  
-  # 批量模式（当 batch_mode = TRUE 时使用）
   seurat_dir = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds",
-  seurat_pattern = "\\.rds$",  # 匹配所有 .rds 文件
-  recursive_search = FALSE,    # 是否递归搜索子目录
-  
-  # 可选：指定要处理的文件（留空则处理所有匹配的文件）
-  # 例如: c("Lung_2-25M.rds", "Heart_2-25M.rds")
+  seurat_pattern = "\\.rds$",
+  recursive_search = FALSE,
   specific_files = NULL,
-  
-  # 可选：排除某些文件
-  # 例如: c("test.rds", "backup.rds")
   exclude_files = NULL,
 
   # ===== 分析参数 =====
-  threshold_quantile = 0.95,  # Top 5%
+  threshold_quantile = 0.95,
   niche_dist_method = "Euclidean",
   n_workers = 6,
   
@@ -55,8 +43,21 @@ CONFIG <- list(
   save_full_object = FALSE,
   
   # ===== 缓存参数 =====
-  cache_max_age_hours = NULL
+  cache_max_age_hours = 24  # ✅ 缓存有效期（小时），NULL = 永久有效
 )
+
+# ===================================================================
+# 初始化缓存目录
+# ===================================================================
+
+if (!is.null(CONFIG$cache_dir)) {
+  if (!dir.exists(CONFIG$cache_dir)) {
+    dir.create(CONFIG$cache_dir, recursive = TRUE, showWarnings = FALSE)
+    cat(sprintf("✅ 创建缓存目录: %s\n", CONFIG$cache_dir))
+  } else {
+    cat(sprintf("✅ 缓存目录: %s\n", CONFIG$cache_dir))
+  }
+}
 
 # ===================================================================
 # 打印配置信息
@@ -85,6 +86,8 @@ if (CONFIG$batch_mode) {
 }
 
 cat(sprintf("输出目录: %s\n", CONFIG$output_base_dir))
+cat(sprintf("缓存目录: %s\n", ifelse(is.null(CONFIG$cache_dir), "未设置", CONFIG$cache_dir)))  # ✅ 新增
+cat(sprintf("缓存有效期: %s\n", ifelse(is.null(CONFIG$cache_max_age_hours), "永久", sprintf("%d小时", CONFIG$cache_max_age_hours))))  # ✅ 新增
 cat(sprintf("阈值分位数: %.2f (Top %.0f%%)\n", 
             CONFIG$threshold_quantile, 
             (1 - CONFIG$threshold_quantile) * 100))

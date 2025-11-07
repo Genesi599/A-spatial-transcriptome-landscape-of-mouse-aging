@@ -47,7 +47,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     celltype_colors <- c(celltype_colors, extra_colors)
   }
   
-  # 只保留实际存在的类型
+  # 只保留实际存在的类型，并确保顺序一致
   celltype_colors <- celltype_colors[all_celltypes]
   
   cat("   📊 Celltype 颜色映射:\n")
@@ -127,41 +127,39 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   # 等高线颜色
   contour_colors <- get_contour_colors(length(contour_breaks))
   
-  # ========================================
-  # 5. 绘图（优化版）
-  # ========================================
-  
   # 统一的图例样式参数
   legend_key_width <- 1.0
   legend_key_height <- 0.7
   legend_text_size <- 10
   legend_title_size <- 11
   
+  # ========================================
+  # 5. 绘图
+  # ========================================
+  
   p <- ggplot() +
     # ========================================
-    # Layer 1: 细胞类型（底层）
+    # Layer 1: 细胞类型（底层）- 使用 FILL
     # ========================================
-    # ✅ 关键修复：使用 color aesthetic，而不是 fill
     geom_tile(
       data = df_filtered,
-      aes(x = col, y = row, color = celltype_clean),
+      aes(x = col, y = row, fill = celltype_clean),  # ✅ 使用 fill
       width = square_size,
       height = square_size,
-      fill = NA,  # ✅ fill 设为 NA
-      alpha = 1,
-      linewidth = 0  # 没有边框
+      color = NA,  # ✅ 不要边框
+      alpha = 1
     ) +
-    scale_color_manual(
-      values = celltype_colors,
+    scale_fill_manual(
+      values = celltype_colors,  # ✅ 必须是命名向量
       name = "Cell Type",
       breaks = all_celltypes,
+      drop = TRUE,
+      na.value = "gray50",
       guide = guide_legend(
         order = 2,
         override.aes = list(
-          fill = celltype_colors,  # ✅ 图例中用填充色
-          color = NA,
           alpha = 1,
-          size = 0.5
+          color = NA  # ✅ 图例中也不要边框
         ),
         title.position = "top",
         title.hjust = 0,
@@ -181,7 +179,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     geom_raster(
       data = contour_data,
       aes(x = col, y = row, fill = density_zone),
-      alpha = 0.3,  # 适度透明，让底层 celltype 清晰可见
+      alpha = 0.3,
       interpolate = TRUE
     ) +
     scale_fill_manual(
@@ -195,7 +193,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
         order = 1,
         override.aes = list(
           alpha = 0.8,
-          color = "gray40",  # 添加边框使图例更清晰
+          color = "gray40",
           linewidth = 0.3
         ),
         title.position = "top",
@@ -229,20 +227,9 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     # ========================================
     # 坐标系统
     # ========================================
-    scale_x_continuous(
-      limits = col_limits, 
-      expand = c(0, 0)
-    ) +
-    scale_y_reverse(
-      limits = rev(row_limits), 
-      expand = c(0, 0)
-    ) +
-    coord_fixed(
-      ratio = 1, 
-      xlim = col_limits, 
-      ylim = rev(row_limits), 
-      clip = "off"
-    ) +
+    scale_x_continuous(limits = col_limits, expand = c(0, 0)) +
+    scale_y_reverse(limits = rev(row_limits), expand = c(0, 0)) +
+    coord_fixed(ratio = 1, xlim = col_limits, ylim = rev(row_limits), clip = "off") +
     
     # ========================================
     # 标题和主题
@@ -251,60 +238,23 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       title = sprintf("Cell Type Distribution in Density Zones - %s", sample_id),
       subtitle = sprintf("Bottom = Cell types | Middle = Density zones (α=0.3) | Top = %d contour lines", 
                         length(contour_breaks)),
-      x = NULL, 
-      y = NULL
+      x = NULL, y = NULL
     ) +
     
     theme_void() +
     theme(
-      # 标题
-      plot.title = element_text(
-        hjust = 0.5, 
-        size = 16, 
-        face = "bold", 
-        margin = margin(b = 5)
-      ),
-      plot.subtitle = element_text(
-        hjust = 0.5, 
-        size = 9, 
-        color = "gray30", 
-        margin = margin(b = 10)
-      ),
-      
-      # 图例位置和排列
+      plot.title = element_text(hjust = 0.5, size = 16, face = "bold", margin = margin(b = 5)),
+      plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray30", margin = margin(b = 10)),
       legend.position = "right",
       legend.box = "vertical",
       legend.box.just = "left",
       legend.spacing.y = unit(0.6, "cm"),
-      
-      # ✅ 统一的图例样式
-      legend.title = element_text(
-        size = legend_title_size, 
-        face = "bold", 
-        hjust = 0, 
-        margin = margin(b = 8)
-      ),
-      legend.text = element_text(
-        size = legend_text_size, 
-        lineheight = 1.2,
-        margin = margin(l = 3, r = 5, t = 2, b = 2)
-      ),
-      legend.key = element_rect(
-        color = "gray60", 
-        fill = NA, 
-        linewidth = 0.3
-      ),
+      legend.title = element_text(size = legend_title_size, face = "bold", hjust = 0, margin = margin(b = 8)),
+      legend.text = element_text(size = legend_text_size, lineheight = 1.2, margin = margin(l = 3, r = 5, t = 2, b = 2)),
+      legend.key = element_rect(color = "gray60", fill = NA, linewidth = 0.3),
       legend.key.spacing.y = unit(0.2, "cm"),
-      
-      # 图例背景
-      legend.background = element_rect(
-        fill = "white", 
-        color = "gray50", 
-        linewidth = 0.5
-      ),
+      legend.background = element_rect(fill = "white", color = "gray50", linewidth = 0.5),
       legend.margin = margin(10, 10, 10, 10),
-      
-      # 整体边距
       plot.margin = margin(15, 20, 15, 15),
       plot.background = element_rect(fill = "white", color = NA)
     )
