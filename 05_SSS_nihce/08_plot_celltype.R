@@ -36,7 +36,8 @@ analyze_celltype_niche <- function(
     plot_overlay = TRUE,
     plot_composition = TRUE,
     plot_heatmap = TRUE,
-    plot_combined = TRUE
+    plot_combined = TRUE,
+    seurat_basename = NULL   # 新增此参数
 ) {
   
   cat("\n")
@@ -237,40 +238,47 @@ analyze_celltype_niche <- function(
     })
   }
   
-  # ========================================
-  # 4. 合并总体结果
-  # ========================================
-  if (nrow(combined_data) > 0) {
-    cat("\n📈 开始绘制综合统计图...\n")
-    
-    if (plot_heatmap) {
-      p_heatmap <- plot_combined_heatmap(combined_data = combined_data, CONFIG = CONFIG)
-      ggsave(
-        file.path(CONFIG$dirs$heatmaps, "celltype_heatmap_all_samples.pdf"),
-        plot = p_heatmap, width = 14, height = 10, dpi = CONFIG$plot$dpi %||% 300, bg = "white"
-      )
-      cat("✅ 保存热图\n")
-    }
-    
-    if (plot_combined) {
-      p_combined <- plot_combined_analysis(combined_data = combined_data, CONFIG = CONFIG)
-      ggsave(
-        file.path(CONFIG$dirs$combined, "combined_analysis.pdf"),
-        plot = p_combined, width = 16, height = 12, dpi = CONFIG$plot$dpi %||% 300, bg = "white"
-      )
-      cat("✅ 保存综合分析图\n")
-    }
-    
-    write.csv(combined_data,
-              file.path(CONFIG$dirs$composition, "celltype_composition_all_samples.csv"),
-              row.names = FALSE)
-    
-    summary_stats <- generate_summary_statistics(combined_data)
-    write.csv(summary_stats,
-              file.path(CONFIG$dirs$composition, "summary_statistics.csv"),
-              row.names = FALSE)
-    
-    cat("✅ 保存统计数据与摘要\n")
+# ========================================
+# 4. 合并总体结果
+# ========================================
+if (nrow(combined_data) > 0) {
+  cat("\n📈 开始绘制综合统计图...\n")
+  
+  # ==== 关键修改开始 ====
+  # 设置标题
+  main_title <- if(!is.null(seurat_basename)) seurat_basename else "Seurat"
+  # ==== 关键修改结束 ====
+  
+  if (plot_heatmap) {
+    p_heatmap <- plot_combined_heatmap(combined_data = combined_data, CONFIG = CONFIG) +
+                 ggtitle(main_title)
+    ggsave(
+      file.path(CONFIG$dirs$heatmaps, "celltype_heatmap_all_samples.pdf"),
+      plot = p_heatmap, width = 14, height = 10, dpi = CONFIG$plot$dpi %||% 300, bg = "white"
+    )
+    cat("✅ 保存热图\n")
+  }
+  
+  if (plot_combined) {
+    p_combined <- plot_combined_analysis(combined_data = combined_data, CONFIG = CONFIG) +
+                  ggtitle(main_title)
+    ggsave(
+      file.path(CONFIG$dirs$combined, "combined_analysis.pdf"),
+      plot = p_combined, width = 16, height = 12, dpi = CONFIG$plot$dpi %||% 300, bg = "white"
+    )
+    cat("✅ 保存综合分析图\n")
+  }
+  
+  write.csv(combined_data,
+            file.path(CONFIG$dirs$composition, "celltype_composition_all_samples.csv"),
+            row.names = FALSE)
+  
+  summary_stats <- generate_summary_statistics(combined_data)
+  write.csv(summary_stats,
+            file.path(CONFIG$dirs$composition, "summary_statistics.csv"),
+            row.names = FALSE)
+  
+  cat("✅ 保存统计数据与摘要\n")
   }
   
   cat("\n✅ 分析完成！\n")

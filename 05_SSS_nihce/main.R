@@ -90,7 +90,11 @@ process_single_file <- function(seurat_path, gene_list, base_config) {
     # 6. 绘图
     plot_isoheight(seurat_obj, samples_to_plot, config)
     plot_spatial_gradient(seurat_obj, samples_to_plot, config)
-    analyze_celltype_niche(seurat_obj, samples_to_plot, config)
+    analyze_celltype_niche(
+      seurat_obj, samples_to_plot, config, 
+      # 其它参数...
+      seurat_basename = seurat_basename
+    )
     
     # 7. 保存结果
     save_results(seurat_obj, config)
