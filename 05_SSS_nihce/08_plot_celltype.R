@@ -338,6 +338,8 @@ standardize_celltype_names <- function(names, mode = "underscore", title_case = 
 
 #' 处理单个样本 (支持调试缓存)
 #'
+#' 处理单个样本 (支持调试缓存)
+#'
 #' @param df 数据框（包含坐标和细胞类型）
 #' @param sample_id 样本ID
 #' @param CONFIG 配置列表
@@ -409,21 +411,51 @@ process_single_sample <- function(df, sample_id, CONFIG) {
   
   # 标准化细胞类型名称
   raw_celltypes <- df[[CONFIG$params$celltype_col]]
+  
+  # ✅ 添加数据验证
+  if (is.null(raw_celltypes) || length(raw_celltypes) == 0) {
+    stop(sprintf("❌ 细胞类型列 '%s' 为空或不存在", CONFIG$params$celltype_col))
+  }
+  
   df$celltype_clean <- standardize_celltype_names(raw_celltypes, mode = "underscore", title_case = TRUE)
   
-  # 打印标准化示例
+  # 打印标准化示例（✅ 修复后的版本）
   unique_raw <- unique(raw_celltypes)
   unique_clean <- unique(df$celltype_clean)
   n_show <- min(5, length(unique_raw))
   
   cat("  🔄 细胞类型标准化:\n")
-  for (i in 1:n_show) {
-    if (unique_raw[i] != unique_clean[i]) {
-      cat(sprintf("     '%s' → '%s'\n", unique_raw[i], unique_clean[i]))
+  
+  if (length(unique_raw) > 0 && length(unique_clean) > 0) {
+    # 创建映射表（更安全的方式）
+    name_map <- data.frame(
+      raw = as.character(unique_raw),
+      clean = as.character(unique_clean),
+      stringsAsFactors = FALSE
+    )
+    
+    # 只显示有变化的
+    changed_names <- name_map[name_map$raw != name_map$clean, ]
+    
+    if (nrow(changed_names) > 0) {
+      n_display <- min(5, nrow(changed_names))
+      for (i in 1:n_display) {
+        cat(sprintf("     '%s' → '%s'\n", 
+                    changed_names$raw[i], 
+                    changed_names$clean[i]))
+      }
+      
+      if (nrow(changed_names) > 5) {
+        cat(sprintf("     ... 还有 %d 个变化\n", nrow(changed_names) - 5))
+      }
+    } else {
+      cat("     （无需标准化）\n")
     }
-  }
-  if (length(unique_raw) > 5) {
-    cat(sprintf("     ... 还有 %d 个\n", length(unique_raw) - 5))
+    
+    # 显示总数
+    cat(sprintf("     总计: %d 个唯一细胞类型\n", length(unique_clean)))
+  } else {
+    cat("     ⚠️  未找到细胞类型\n")
   }
   
   # 检查未知细胞类型
