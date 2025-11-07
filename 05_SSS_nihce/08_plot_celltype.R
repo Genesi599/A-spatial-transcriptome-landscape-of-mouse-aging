@@ -50,7 +50,6 @@ tryCatch({
   source(file.path(utils_dir, "05_plot_heatmap.R"))
   source(file.path(utils_dir, "06_plot_combined.R"))
   source(file.path(utils_dir, "07_statistics.R"))
-  source(file.path(utils_dir, "08_validation.R"))
   source(file.path(utils_dir, "10_summary.R"))
   
   cat("   ✅ 所有工具已加载\n\n")
