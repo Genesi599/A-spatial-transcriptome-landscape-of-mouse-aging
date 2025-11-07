@@ -184,12 +184,15 @@ main_batch <- function() {
   # 1. 统一初始化环境
   # ----------------------------------------
   cat("\n【初始化】环境设置\n")
-  
+
   init_result <- initialize_environment(
     config = CONFIG,
     custom_scripts = c("niche_marker.R", "SSS_isoheight_plot.R")
   )
-  
+
+  # ✅ 新增：接收更新后的 CONFIG
+  CONFIG <- init_result$config
+
   if (length(init_result$packages$failed) > 0) {
     warning("⚠️  部分包加载失败，可能影响分析")
   }

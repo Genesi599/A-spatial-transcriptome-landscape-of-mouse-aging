@@ -8,6 +8,7 @@
 #' 设置环境和创建输出目录
 #'
 #' @param config 配置列表
+#' @return 更新后的配置列表
 #'
 setup_environment <- function(config) {
   
@@ -61,7 +62,41 @@ setup_environment <- function(config) {
   
   cat("\n")
   
-  return(invisible(NULL))
+  # ---------------------------
+  # 3. ✅ 初始化分析参数（新增）
+  # ---------------------------
+  cat("🔧 初始化分析参数...\n")
+  
+  # 定义辅助操作符（如果不存在）
+  if (!exists("%||%", mode = "function")) {
+    `%||%` <- function(a, b) if (is.null(a)) b else a
+  }
+  
+  # 初始化 params（如果不存在）
+  if (is.null(config$params)) {
+    config$params <- list()
+  }
+  
+  # 设置默认参数值（如果未配置）
+  config$params$celltype_col <- config$params$celltype_col %||% "celltype"
+  config$params$col_col <- config$params$col_col %||% "x"
+  config$params$row_col <- config$params$row_col %||% "y"
+  config$params$density_threshold_percentile <- 
+    config$params$density_threshold_percentile %||% 0.95
+  config$params$n_zones <- config$params$n_zones %||% 10
+  config$params$grid_resolution <- config$params$grid_resolution %||% 200
+  
+  cat(sprintf("  ✓ 细胞类型列: %s\n", config$params$celltype_col))
+  cat(sprintf("  ✓ 坐标列: %s, %s\n", config$params$col_col, config$params$row_col))
+  cat(sprintf("  ✓ 密度阈值: %.2f (分位数)\n", config$params$density_threshold_percentile))
+  cat(sprintf("  ✓ 区域数量: %d\n", config$params$n_zones))
+  cat(sprintf("  ✓ 网格分辨率: %d\n", config$params$grid_resolution))
+  cat("\n")
+  
+  # ---------------------------
+  # 4. 返回修改后的配置
+  # ---------------------------
+  return(config)
 }
 
 
@@ -164,7 +199,7 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
   cat("   并行计算配置\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
-  # ✅ 添加在这里：禁用 SLURM 自动检测
+  # 禁用 SLURM 自动检测
   Sys.setenv(R_FUTURE_PLAN = "multisession")
   Sys.setenv(R_FUTURE_FORK_ENABLE = "false")
   
@@ -181,7 +216,7 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
   )
   
   cat("✓ future 全局选项已设置\n")
-  cat("✓ SLURM 检测已禁用\n")  # ✅ 添加提示
+  cat("✓ SLURM 检测已禁用\n")
   
   # 设置进度条
   progressr::handlers(
@@ -249,6 +284,7 @@ load_custom_functions <- function(script_paths = c("niche_marker.R",
 #'
 #' @param config 配置列表
 #' @param custom_scripts 自定义脚本路径
+#' @return 更新后的配置列表和初始化统计
 #'
 initialize_environment <- function(config, 
                                   custom_scripts = c("niche_marker.R", 
@@ -262,8 +298,8 @@ initialize_environment <- function(config,
   
   start_time <- Sys.time()
   
-  # 1. 设置环境
-  setup_environment(config)
+  # 1. 设置环境（✅ 修改：接收返回的 config）
+  config <- setup_environment(config)
   
   # 2. 加载包
   pkg_result <- load_packages(verbose = TRUE)
@@ -295,15 +331,18 @@ initialize_environment <- function(config,
   cat(sprintf("  - 输出目录: %s\n", config$output_dir))
   cat(sprintf("  - 并行线程: %d\n", config$n_workers %||% 4))
   cat(sprintf("  - 图形 DPI: %d\n", config$plot$dpi %||% 300))
+  cat(sprintf("  - 细胞类型列: %s\n", config$params$celltype_col))
   cat("\n")
   
   cat("═══════════════════════════════════════════════════════════\n\n")
   
-  return(invisible(list(
+  # ✅ 修改：返回 config 和统计信息
+  return(list(
+    config = config,
     packages = pkg_result,
     scripts = script_result,
     elapsed_time = as.numeric(elapsed)
-  )))
+  ))
 }
 
 
@@ -322,8 +361,8 @@ if (!exists("%||%")) {
 # ===================================================================
 cat("✅ 01_setup.R 已加载\n")
 cat("📚 可用函数:\n")
-cat("  - setup_environment(config)\n")
+cat("  - setup_environment(config)                              [返回更新后的 config]\n")
 cat("  - load_packages(verbose = TRUE)\n")
 cat("  - setup_parallel(n_workers = 4, memory_limit = 100)\n")
 cat("  - load_custom_functions(script_paths)\n")
-cat("  - initialize_environment(config, custom_scripts)  [推荐]\n\n")
+cat("  - initialize_environment(config, custom_scripts)         [推荐，返回 list]\n\n")
