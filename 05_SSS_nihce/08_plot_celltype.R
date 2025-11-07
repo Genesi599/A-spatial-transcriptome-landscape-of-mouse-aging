@@ -705,7 +705,7 @@ run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
 
 
 # ===================================================================
-# 主接口函数（兼容原有调用）
+# 主接口函数（兼容原有调用 - 自适应配置）
 # ===================================================================
 
 #' 细胞类型Niche分析主函数
@@ -720,16 +720,83 @@ analyze_celltype_niche <- function(sample_list, CONFIG, seurat_basename = NULL) 
   # 提取样本ID
   sample_ids <- names(sample_list)
   
+  # ===================================================================
+  # 🔧 自适应配置：检查并初始化 CONFIG$output 结构
+  # ===================================================================
+  
+  if (is.null(CONFIG$output) || is.null(CONFIG$output$plot_dir) || is.null(CONFIG$output$data_dir)) {
+    
+    cat("   🔧 初始化输出目录结构 (celltype)...\n")
+    
+    # 定义辅助操作符（如果不存在）
+    if (!exists("%||%", mode = "function")) {
+      `%||%` <- function(a, b) if (is.null(a)) b else a
+    }
+    
+    # 确定基础图形和数据目录
+    base_figure_dir <- NULL
+    base_metadata_dir <- NULL
+    
+    # 方案1: 优先从 CONFIG$dirs 推断
+    if (!is.null(CONFIG$dirs) && !is.null(CONFIG$dirs$figure)) {
+      base_figure_dir <- CONFIG$dirs$figure
+      base_metadata_dir <- CONFIG$metadata_dir %||% 
+                           file.path(dirname(base_figure_dir), "metadata")
+    } 
+    # 方案2: 从 CONFIG$figure_dir 推断
+    else if (!is.null(CONFIG$figure_dir)) {
+      base_figure_dir <- CONFIG$figure_dir
+      base_metadata_dir <- CONFIG$metadata_dir %||% 
+                           file.path(dirname(base_figure_dir), "metadata")
+    }
+    # 方案3: 从 CONFIG$output_dir 推断
+    else if (!is.null(CONFIG$output_dir)) {
+      base_figure_dir <- file.path(CONFIG$output_dir, "figure")
+      base_metadata_dir <- file.path(CONFIG$output_dir, "metadata")
+    }
+    # 方案4: 从 CONFIG$output_base_dir 推断
+    else if (!is.null(CONFIG$output_base_dir)) {
+      if (!is.null(seurat_basename)) {
+        base_dir <- file.path(CONFIG$output_base_dir, seurat_basename)
+      } else {
+        base_dir <- CONFIG$output_base_dir
+      }
+      base_figure_dir <- file.path(base_dir, "figure")
+      base_metadata_dir <- file.path(base_dir, "metadata")
+    }
+    # 方案5: 最后兜底
+    else {
+      stop("❌ 无法推断输出目录，CONFIG 中缺少必要的路径信息\n",
+           "   请确保 CONFIG 包含以下任一项: dirs$figure, figure_dir, output_dir, output_base_dir")
+    }
+    
+    # 创建 output 结构
+    CONFIG$output <- list(
+      base_dir = dirname(base_figure_dir),
+      plot_dir = file.path(base_figure_dir, "celltype"),
+      data_dir = file.path(base_metadata_dir, "celltype")
+    )
+    
+    cat(sprintf("      📊 图形: %s\n", CONFIG$output$plot_dir))
+    cat(sprintf("      📁 数据: %s\n", CONFIG$output$data_dir))
+  }
+  
+  # ===================================================================
   # 确保输出目录存在
-  if (!dir.exists(CONFIG$output$plot_dir)) {
-    dir.create(CONFIG$output$plot_dir, recursive = TRUE, showWarnings = FALSE)
+  # ===================================================================
+  
+  for (dir_name in names(CONFIG$output)) {
+    dir_path <- CONFIG$output[[dir_name]]
+    if (!is.null(dir_path) && !dir.exists(dir_path)) {
+      dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+      cat(sprintf("   📁 创建目录: %s\n", basename(dir_path)))
+    }
   }
   
-  if (!dir.exists(CONFIG$output$data_dir)) {
-    dir.create(CONFIG$output$data_dir, recursive = TRUE, showWarnings = FALSE)
-  }
-  
+  # ===================================================================
   # 运行分析
+  # ===================================================================
+  
   results <- run_celltype_analysis(
     data_list = sample_list,
     sample_ids = sample_ids,
@@ -744,7 +811,7 @@ analyze_celltype_niche <- function(sample_list, CONFIG, seurat_basename = NULL) 
 # 导出可用函数列表
 # ===================================================================
 
-cat("✅ 08_plot_celltype.R 已加载 (支持调试缓存)\n")
+cat("✅ 08_plot_celltype.R 已加载 (支持调试缓存 + 自适应配置)\n")
 cat("📚 可用函数:\n")
 cat("  主函数:\n")
 cat("    - analyze_celltype_niche(sample_list, CONFIG, seurat_basename)\n")
