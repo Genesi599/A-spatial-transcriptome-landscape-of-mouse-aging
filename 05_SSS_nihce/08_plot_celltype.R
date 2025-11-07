@@ -1,4 +1,4 @@
-# 08_plot_celltype.R (多线程并行版)
+# 08_plot_celltype.R (多线程并行版 - 修正编码问题)
 
 # ===================================================================
 # 细胞类型 + 等高线分析完整工作流（多线程并行版）
@@ -392,7 +392,7 @@ analyze_celltype_niche <- function(
     cat("   生成综合统计图\n")
     cat("═══════════════════════════════════════════════════════════\n\n")
     
-    综合图开始时间 <- Sys.time()
+    combined_start_time <- Sys.time()
     
     # 设置标题
     main_title <- if (!is.null(seurat_basename)) seurat_basename else "Seurat Object"
@@ -479,10 +479,10 @@ analyze_celltype_niche <- function(
     write.csv(summary_stats, summary_csv, row.names = FALSE)
     cat(sprintf("   ✅ 保存: %s\n", basename(summary_csv)))
     
-    综合图结束时间 <- Sys.time()
-    综合图耗时 <- difftime(综合图结束时间, 综合图开始时间, units = "secs")
+    combined_end_time <- Sys.time()
+    combined_elapsed <- difftime(combined_end_time, combined_start_time, units = "secs")
     
-    cat(sprintf("\n⏱️  综合图生成耗时: %.2f 秒\n", as.numeric(综合图耗时)))
+    cat(sprintf("\n⏱️  综合图生成耗时: %.2f 秒\n", as.numeric(combined_elapsed)))
   }
   
   # ========================================
