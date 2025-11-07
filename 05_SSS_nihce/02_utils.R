@@ -240,4 +240,14 @@ standardize_spatial_coordinates <- function(seurat_obj) {
   return(seurat_obj)
 }
 
+# 将 Seurat 安全转换为 data.frame（保留 meta.data），其余保持不变
+ensure_df <- function(x) {
+  if (inherits(x, "Seurat")) return(x@meta.data)
+  if (is.data.frame(x)) return(x)
+  stop("ensure_df: 仅支持 Seurat 或 data.frame")
+}
 
+# 统一日志输出，受全局 CONFIG$quiet 控制
+logi <- function(fmt, ..., .quiet = getOption("pipeline.quiet", FALSE)) {
+  if (!isTRUE(.quiet)) cat(sprintf(fmt, ...))
+}

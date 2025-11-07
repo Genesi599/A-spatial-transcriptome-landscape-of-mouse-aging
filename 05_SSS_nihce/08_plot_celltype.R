@@ -242,15 +242,90 @@ clear_all_cache <- function(CONFIG, confirm = TRUE) {
 # ==================================================================
 
 process_single_sample <- function(df, sample_id, CONFIG) {
-  
-  cat(sprintf("\n[%s]\n", sample_id))
-  
-  # 尝试加载缓存
+  # ------------------------------
+  # 小工具: 安全拿到 data.frame + 坐标列
+  # ------------------------------
+  pick_coord_cols <- function(md, coords = NULL) {
+    # 常见候选
+    cands <- list(
+      list(col = "col",                row = "row"),
+      list(col = "x",                  row = "y"),
+      list(col = "imagecol",           row = "imagerow"),
+      list(col = "pxl_col_in_fullres", row = "pxl_row_in_fullres"),
+      list(col = "array_col",          row = "array_row")
+    )
+    if (!is.null(coords)) {
+      if (all(c("x","y") %in% colnames(coords))) return(list(col = "x", row = "y", src = "coords"))
+      if (all(c("imagecol","imagerow") %in% colnames(coords))) return(list(col = "imagecol", row = "imagerow", src = "coords"))
+    }
+    for (c in cands) {
+      if (all(c(c$col, c$row) %in% colnames(md))) return(list(col = c$col, row = c$row, src = "meta"))
+    }
+    return(NULL)
+  }
+
+  get_df_std <- function(x) {
+    if (inherits(x, "Seurat")) {
+      seu <- x
+      md <- seu@meta.data
+      coords <- NULL
+      if (requireNamespace("Seurat", quietly = TRUE)) {
+        coords <- tryCatch(Seurat::GetTissueCoordinates(seu), error = function(e) NULL)
+        if (!is.null(coords) && is.null(rownames(coords)) && "barcode" %in% colnames(coords)) {
+          rownames(coords) <- coords$barcode
+        }
+        if (!is.null(coords)) {
+          common <- intersect(rownames(md), rownames(coords))
+          md <- md[common, , drop = FALSE]
+          coords <- coords[common, , drop = FALSE]
+        }
+      }
+      info <- pick_coord_cols(md, coords)
+      if (is.null(info)) {
+        stop("无法在 Seurat 对象中识别坐标列，请检查 meta.data 或 GetTissueCoordinates 结果")
+      }
+      if (identical(info$src, "coords")) {
+        out <- cbind(md, coords[, c(info$col, info$row), drop = FALSE])
+        colnames(out)[(ncol(out)-1):ncol(out)] <- c("col", "row")
+      } else {
+        out <- md
+        colnames(out)[match(c(info$col, info$row), colnames(out))] <- c("col", "row")
+      }
+      out <- as.data.frame(out, stringsAsFactors = FALSE)
+      return(out)
+    } else if (is.data.frame(x)) {
+      out <- x
+      # 若无标准列名，尝试自动映射
+      if (!all(c("col","row") %in% colnames(out))) {
+        info <- pick_coord_cols(out, NULL)
+        if (is.null(info)) {
+          stop("数据中缺少坐标列（col/row 或常见别名 x/y, imagecol/imagerow, pxl_col_in_fullres/pxl_row_in_fullres）")
+        }
+        colnames(out)[match(c(info$col, info$row), colnames(out))] <- c("col", "row")
+      }
+      return(out)
+    } else {
+      stop("df 必须是 Seurat 或 data.frame")
+    }
+  }
+
+  qout <- function(...) {
+    # 受全局 CONFIG$quiet 控制
+    if (!isTRUE(CONFIG$quiet)) cat(sprintf(...))
+  }
+
+  # ------------------------------
+  # 标题输出（受 quiet 控制）
+  # ------------------------------
+  qout("\n[%s]\n", sample_id)
+
+  # ------------------------------
+  # 加载缓存
+  # ------------------------------
   cached_data <- load_plot_cache(sample_id, CONFIG)
-  
   if (!is.null(cached_data)) {
-    cat("      🎨 使用缓存数据...\n")
-    
+    qout("      🎨 使用缓存数据...\n")
+
     p_overlay <- plot_celltype_density_overlay(
       cached_data$df, 
       cached_data$density_data, 
@@ -262,111 +337,100 @@ process_single_sample <- function(df, sample_id, CONFIG) {
       sample_id, 
       CONFIG
     )
-    
-    overlay_file <- file.path(
-      CONFIG$output$plot_dir, 
-      sprintf("%s_overlay.png", sample_id)
-    )
-    composition_file <- file.path(
-      CONFIG$output$plot_dir, 
-      sprintf("%s_composition.png", sample_id)
-    )
-    
-    ggsave(overlay_file, p_overlay, 
-           width = 16, height = 12, dpi = 300, bg = "white")
-    ggsave(composition_file, p_composition, 
-           width = 14, height = 10, dpi = 300, bg = "white")
-    
+
+    overlay_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_overlay.png", sample_id))
+    composition_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_composition.png", sample_id))
+
+    ggsave(overlay_file, p_overlay, width = 16, height = 12, dpi = 300, bg = "white")
+    ggsave(composition_file, p_composition, width = 14, height = 10, dpi = 300, bg = "white")
+
     n_spots <- nrow(cached_data$df)
-    n_high <- sum(!is.na(cached_data$df$density_zone))
-    n_types <- length(
-      setdiff(unique(cached_data$df$celltype_clean), "Unknown")
-    )
-    
-    cat(sprintf(
-      "  ✅ %d spots | %d high | %d types (缓存)\n", 
-      n_spots, n_high, n_types
-    ))
-    
+    n_high  <- sum(!is.na(cached_data$df$density_zone))
+    n_types <- length(setdiff(unique(cached_data$df$celltype_clean), "Unknown"))
+
+    qout("  ✅ %d spots | %d high | %d types (缓存)\n", n_spots, n_high, n_types)
+
     return(list(
       density_data = cached_data$density_data,
       zone_composition = cached_data$zone_composition,
-      plots = list(
-        overlay = p_overlay, 
-        composition = p_composition
-      ),
-      stats = list(
-        n_spots = n_spots, 
-        n_high_density = n_high, 
-        n_celltypes = n_types
-      ),
+      plots = list(overlay = p_overlay, composition = p_composition),
+      stats = list(n_spots = n_spots, n_high_density = n_high, n_celltypes = n_types),
       from_cache = TRUE
     ))
   }
-  
-  # 验证配置
+
+  # ------------------------------
+  # 颜色方案验证
+  # ------------------------------
   if (is.null(CONFIG$colors$celltype)) {
     stop("❌ 全局颜色方案未初始化！")
   }
-  
-  # 使用原始细胞类型，只处理NA
+
+  # ------------------------------
+  # 标准化 df：确保是 data.frame 且有 col/row
+  # ------------------------------
+  df <- get_df_std(df)
+
+  # ------------------------------
+  # 清洗细胞类型（仅 NA/空串 -> Unknown）
+  # ------------------------------
+  if (is.null(CONFIG$params$celltype_col) || !(CONFIG$params$celltype_col %in% colnames(df))) {
+    stop(sprintf("❌ 细胞类型列 '%s' 不存在", CONFIG$params$celltype_col))
+  }
   raw_celltypes <- df[[CONFIG$params$celltype_col]]
-  
   if (is.null(raw_celltypes) || length(raw_celltypes) == 0) {
-    stop(sprintf(
-      "❌ 细胞类型列 '%s' 为空", 
-      CONFIG$params$celltype_col
-    ))
+    stop(sprintf("❌ 细胞类型列 '%s' 为空", CONFIG$params$celltype_col))
   }
-  
-  # 只处理NA和空值，其他完全保持原样
-  df$celltype_clean <- ifelse(
-    is.na(raw_celltypes) | raw_celltypes == "", 
-    "Unknown", 
-    as.character(raw_celltypes)
-  )
-  
-  # 打印细胞类型信息
-  unique_types <- unique(df$celltype_clean)
-  unique_types <- sort(unique_types[unique_types != "Unknown"])
+  df$celltype_clean <- ifelse(is.na(raw_celltypes) | raw_celltypes == "", "Unknown", as.character(raw_celltypes))
+
+  # 打印简洁的类型信息（静默模式不打印）
+  unique_types <- sort(unique(df$celltype_clean[df$celltype_clean != "Unknown"]))
   n_types <- length(unique_types)
-  
-  cat(sprintf("  📊 细胞类型: %d 个\n", n_types))
-  
-  if (n_types <= 10) {
-    for (ct in unique_types) {
-      cat(sprintf("     • %s\n", ct))
-    }
-  } else {
-    for (i in 1:10) {
-      cat(sprintf("     • %s\n", unique_types[i]))
-    }
-    cat(sprintf("     ... 还有 %d 个\n", n_types - 10))
+  qout("  📊 细胞类型: %d 个\n", n_types)
+  if (n_types > 0 && !isTRUE(CONFIG$quiet)) {
+    head_n <- min(10, n_types)
+    for (i in seq_len(head_n)) qout("     • %s\n", unique_types[i])
+    if (n_types > head_n) qout("     ... 还有 %d 个\n", n_types - head_n)
   }
-  
-  # 检查未知类型
+
+  # 检查未知类型（不终止，仅 warn）
   all_types_global <- names(CONFIG$colors$celltype)
-  sample_types <- unique(df$celltype_clean)
-  sample_types <- sample_types[sample_types != "Unknown"]
+  sample_types <- setdiff(unique(df$celltype_clean), "Unknown")
   missing_types <- setdiff(sample_types, all_types_global)
-  
   if (length(missing_types) > 0) {
-    warning(sprintf(
-      "  ⚠️  未知类型: %s", 
-      paste(missing_types, collapse = ", ")
-    ))
+    warning(sprintf("  ⚠️  未知类型: %s", paste(missing_types, collapse = ", ")))
   }
-  
-  # 计算密度区域
+
+  # ------------------------------
+  # 计算密度区域（静默）
+  # ------------------------------
+  expand_margin <- if (!is.null(CONFIG$params$expand_margin)) CONFIG$params$expand_margin else 0.1
+  # 确保有 ClockGene_High 列（calculate_density_zones 需要）
+  if (!("ClockGene_High" %in% colnames(df))) {
+    stop("缺少列 'ClockGene_High'，无法进行密度计算")
+  }
   density_data <- calculate_density_zones(
     df = df,
-    density_bins = CONFIG$params$n_zones,
-    expand_margin = 0.1
+    density_bins  = CONFIG$params$n_zones,
+    expand_margin = expand_margin,
+    quiet = TRUE
   )
-  
-  df$density_zone <- density_data$cell_zones
-  
-  # 计算zone组成
+  if (is.null(density_data)) {
+    warning(sprintf("[%s] 密度计算失败或高表达点不足，跳过该样本", sample_id))
+    return(NULL)
+  }
+
+  # 将密度 zone 合并回 df
+  # density_data$spot_zones: col,row,density_zone,density_value
+  df <- df %>%
+    dplyr::left_join(
+      density_data$spot_zones,
+      by = c("col", "row")
+    )
+
+  # ------------------------------
+  # 计算每个 zone 的细胞组成
+  # ------------------------------
   zone_composition <- df %>%
     dplyr::filter(!is.na(density_zone)) %>%
     dplyr::group_by(density_zone, celltype_clean) %>%
@@ -377,9 +441,11 @@ process_single_sample <- function(df, sample_id, CONFIG) {
       percentage = (count / total) * 100
     ) %>%
     dplyr::ungroup()
-  
-  # 保存缓存
-  if (CONFIG$debug_mode) {
+
+  # ------------------------------
+  # 保存缓存（仅 debug 模式）
+  # ------------------------------
+  if (isTRUE(CONFIG$debug_mode)) {
     plot_data <- list(
       df = df,
       density_data = density_data,
@@ -393,60 +459,37 @@ process_single_sample <- function(df, sample_id, CONFIG) {
     )
     save_plot_cache(sample_id, plot_data, CONFIG)
   }
-  
+
+  # ------------------------------
   # 绘图
-  p_overlay <- plot_celltype_density_overlay(
-    df, density_data, sample_id, CONFIG
-  )
-  p_composition <- plot_zone_composition(
-    zone_composition, sample_id, CONFIG
-  )
-  
-  # 保存
-  overlay_file <- file.path(
-    CONFIG$output$plot_dir, 
-    sprintf("%s_overlay.png", sample_id)
-  )
-  composition_file <- file.path(
-    CONFIG$output$plot_dir, 
-    sprintf("%s_composition.png", sample_id)
-  )
-  
-  ggsave(overlay_file, p_overlay, 
-         width = 16, height = 12, dpi = 300, bg = "white")
-  ggsave(composition_file, p_composition, 
-         width = 14, height = 10, dpi = 300, bg = "white")
-  
-  zone_comp_file <- file.path(
-    CONFIG$output$data_dir, 
-    sprintf("%s_zone_composition.csv", sample_id)
-  )
-  write.csv(zone_composition, zone_comp_file, row.names = FALSE)
-  
-  # 统计
+  # ------------------------------
+  p_overlay <- plot_celltype_density_overlay(df, density_data, sample_id, CONFIG)
+  p_composition <- plot_zone_composition(zone_composition, sample_id, CONFIG)
+
+  # ------------------------------
+  # 保存图与数据
+  # ------------------------------
+  overlay_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_overlay.png", sample_id))
+  composition_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_composition.png", sample_id))
+  ggsave(overlay_file, p_overlay, width = 16, height = 12, dpi = 300, bg = "white")
+  ggsave(composition_file, p_composition, width = 14, height = 10, dpi = 300, bg = "white")
+
+  zone_comp_file <- file.path(CONFIG$output$data_dir, sprintf("%s_zone_composition.csv", sample_id))
+  utils::write.csv(zone_composition, zone_comp_file, row.names = FALSE)
+
+  # ------------------------------
+  # 统计输出（静默）
+  # ------------------------------
   n_spots <- nrow(df)
-  n_high <- sum(!is.na(df$density_zone))
-  n_types <- length(
-    setdiff(unique(df$celltype_clean), "Unknown")
-  )
-  
-  cat(sprintf(
-    "  ✅ %d spots | %d high | %d types\n", 
-    n_spots, n_high, n_types
-  ))
-  
+  n_high  <- sum(!is.na(df$density_zone))
+  n_types <- length(setdiff(unique(df$celltype_clean), "Unknown"))
+  qout("  ✅ %d spots | %d high | %d types\n", n_spots, n_high, n_types)
+
   return(list(
     density_data = density_data,
     zone_composition = zone_composition,
-    plots = list(
-      overlay = p_overlay, 
-      composition = p_composition
-    ),
-    stats = list(
-      n_spots = n_spots, 
-      n_high_density = n_high, 
-      n_celltypes = n_types
-    ),
+    plots = list(overlay = p_overlay, composition = p_composition),
+    stats = list(n_spots = n_spots, n_high_density = n_high, n_celltypes = n_types),
     from_cache = FALSE
   ))
 }
