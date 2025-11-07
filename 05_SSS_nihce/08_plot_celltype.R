@@ -506,8 +506,23 @@ create_global_color_scheme <- function(
   
   cat("\n🎨 生成全局颜色方案...\n")
   
-  all_celltypes <- unique(unlist(lapply(data_list, function(df) {
-    ct <- df[[celltype_col]]
+  # ========================================
+  # 1. 收集所有细胞类型（✅ 修复：支持 Seurat 对象）
+  # ========================================
+  
+  all_celltypes <- unique(unlist(lapply(data_list, function(obj) {
+    
+    # ✅ 判断是 Seurat 对象还是 data.frame
+    if (inherits(obj, "Seurat")) {
+      ct <- obj@meta.data[[celltype_col]]
+    } else if (is.data.frame(obj)) {
+      ct <- obj[[celltype_col]]
+    } else {
+      warning(sprintf("未知对象类型: %s", class(obj)[1]))
+      return(character(0))
+    }
+    
+    # ✅ 清理并去重（每个样本只返回唯一的细胞类型）
     ct <- as.character(ct)
     unique(ct[!is.na(ct) & ct != "" & ct != "Unknown"])
   })))
@@ -515,7 +530,15 @@ create_global_color_scheme <- function(
   all_celltypes <- sort(all_celltypes)
   n_celltypes <- length(all_celltypes)
   
+  if (n_celltypes == 0) {
+    stop("❌ 未找到任何细胞类型")
+  }
+  
   cat(sprintf("  📊 发现 %d 个细胞类型\n", n_celltypes))
+  
+  # ========================================
+  # 2. 打印细胞类型列表（✅ 限制输出）
+  # ========================================
   
   if (n_celltypes <= 10) {
     for (ct in all_celltypes) {
@@ -528,13 +551,16 @@ create_global_color_scheme <- function(
     cat(sprintf("     ... 还有 %d 个\n", n_celltypes - 10))
   }
   
-  # 生成颜色
+  # ========================================
+  # 3. 生成细胞类型颜色映射
+  # ========================================
+  
   celltype_colors <- get_celltype_colors(all_celltypes)
   zone_colors <- get_zone_colors(n_zones)
   names(zone_colors) <- sprintf("Zone_%d", 0:(n_zones - 1))
   
   cat(sprintf(
-    "  ✅ 完成 (%d 类型 + %d 区域)\n", 
+    "\n  ✅ 完成 (%d 类型 + %d 区域)\n", 
     n_celltypes, n_zones
   ))
   
