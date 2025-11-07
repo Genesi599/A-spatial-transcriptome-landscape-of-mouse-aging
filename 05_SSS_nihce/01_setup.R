@@ -164,6 +164,10 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
   cat("   并行计算配置\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
+  # ✅ 添加在这里：禁用 SLURM 自动检测
+  Sys.setenv(R_FUTURE_PLAN = "multisession")
+  Sys.setenv(R_FUTURE_FORK_ENABLE = "false")
+  
   # 设置 future 并行策略
   future::plan(future::sequential)
   
@@ -177,8 +181,9 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
   )
   
   cat("✓ future 全局选项已设置\n")
+  cat("✓ SLURM 检测已禁用\n")  # ✅ 添加提示
   
-  # ✅ 关键修改：设置进度条并启用全局传播
+  # 设置进度条
   progressr::handlers(
     progressr::handler_progress(
       format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
@@ -187,8 +192,6 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
       clear    = FALSE
     )
   )
-  
-  # ✅ 启用全局模式（让 future workers 继承设置）
   progressr::handlers(global = TRUE)
   
   cat("✓ progressr 进度条已启用（全局模式）\n\n")
