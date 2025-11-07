@@ -144,17 +144,33 @@ print_file_list <- function(seurat_files) {
 #' @param base_config 基础配置
 #' @return 更新后的配置
 #'
-update_config_for_file <- function(seurat_path, base_config) {
+update_config_paths <- function(config) {
   
-  config <- base_config
-  config$seurat_path <- seurat_path
+  # 更新基础目录
+  config$cache_dir <- file.path(config$output_dir, "cache")
+  config$figure_dir <- file.path(config$output_dir, "figure")
+  config$metadata_dir <- file.path(config$output_dir, "metadata")
   
-  # 提取文件名
-  seurat_basename <- tools::file_path_sans_ext(basename(seurat_path))
-  config$output_dir <- file.path(config$output_base_dir, seurat_basename)
+  # 更新详细目录
+  config$dirs <- list(
+    cache = config$cache_dir,
+    figure = config$figure_dir,
+    metadata = config$metadata_dir,
+    isoheight = file.path(config$figure_dir, "isoheight"),
+    spatial = file.path(config$figure_dir, "spatial"),
+    overlay = file.path(config$figure_dir, "isoheight", "01_overlay_plots"),
+    celltype = file.path(config$figure_dir, "isoheight", "02_celltype_only"),
+    composition = file.path(config$figure_dir, "isoheight", "03_composition_stats"),
+    heatmaps = file.path(config$figure_dir, "isoheight", "04_heatmaps"),
+    combined = file.path(config$figure_dir, "isoheight", "05_combined_analysis")
+  )
   
-  # 更新所有目录路径
-  config <- update_config_paths(config)
+  # ✅ 添加 output 结构（用于 08_plot_celltype.R）
+  config$output <- list(
+    base_dir = config$output_dir,
+    plot_dir = file.path(config$figure_dir, "celltype"),
+    data_dir = file.path(config$metadata_dir, "celltype")
+  )
   
   return(config)
 }
