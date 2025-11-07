@@ -1,8 +1,8 @@
 # ===================================================================
-# 08_plot_celltype.R
+# 08_plot_celltype.R  （已修正版 ✅）
 # 细胞类型 + 等高线分析完整工作流（模块化版本）
 # Author: Assistant
-# Date: 2025-11-06
+# Date: 2025-11-07
 # ===================================================================
 
 # ===================================================================
@@ -27,23 +27,6 @@ cat("✅ 已加载所有工具函数\n")
 # 主函数：细胞类型等高线分析
 # ===================================================================
 
-#' 细胞类型 + Clock Gene Niche 等高线综合分析
-#'
-#' @param seurat_obj Seurat 对象
-#' @param samples_to_plot 要分析的样本列表
-#' @param CONFIG 配置列表
-#' @param density_bins 等高线分级数量，默认 10（对应10个区域）
-#' @param celltype_col 细胞类型列名，默认 "celltype"
-#' @param plot_overlay 是否绘制叠加图，默认 TRUE
-#' @param plot_composition 是否绘制组成图，默认 TRUE
-#' @param plot_heatmap 是否绘制热图，默认 TRUE
-#' @param plot_combined 是否绘制合并分析图，默认 TRUE
-#'
-#' @return 返回统计数据列表
-#'
-#' @examples
-#' result <- analyze_celltype_niche(seurat_obj, samples_to_plot, CONFIG)
-#'
 analyze_celltype_niche <- function(
     seurat_obj,
     samples_to_plot,
@@ -60,6 +43,23 @@ analyze_celltype_niche <- function(
   cat(rep("=", 80), "\n", sep = "")
   cat("🧬 细胞类型 + Clock Gene Niche 等高线分析\n")
   cat(rep("=", 80), "\n\n", sep = "")
+  
+  # ========================================
+  # 0. 初始化颜色配置（新增部分）✅
+  # ========================================
+  all_celltypes <- sort(unique(as.character(seurat_obj[[celltype_col]][,1])))
+  
+  if (is.null(CONFIG$colors$celltype_colors)) {
+    CONFIG$colors$celltype_colors <- get_celltype_colors(all_celltypes)
+    cat(sprintf("🎨 已生成 %d 种细胞类型颜色方案\n", length(CONFIG$colors$celltype_colors)))
+  }
+  
+  if (is.null(CONFIG$colors$zone_colors)) {
+    CONFIG$colors$zone_colors <- get_zone_colors(density_bins)
+  }
+  
+  # 可选：打印确认
+  print(CONFIG$colors$celltype_colors)
   
   # ========================================
   # 1. 参数验证
@@ -151,7 +151,7 @@ analyze_celltype_niche <- function(
       density_data <- calculate_density_zones(
         df = df,
         density_bins = density_bins,
-        expand_margin = CONFIG$plot$expand_margin %||% 0.05
+        expand_margin = CONFIG$plot$expand_margin %||% 0.1
       )
       
       if (is.null(density_data)) {
@@ -159,61 +159,38 @@ analyze_celltype_niche <- function(
         next
       }
       
-      # 合并密度信息到df
       df <- df %>%
         dplyr::left_join(
           density_data$spot_zones %>% dplyr::select(col, row, density_zone, density_value),
           by = c("col", "row")
         )
       
-      # 检查NA情况
       n_na <- sum(is.na(df$density_zone))
       if (n_na > 0) {
-        cat(sprintf("   ⚠️  警告: %d 个spots未分配到zone (%.2f%%)\n", 
+        cat(sprintf("   ⚠️  %d 个spots未分配到zone (%.2f%%)\n", 
                     n_na, 100 * n_na / nrow(df)))
       }
       
-      # 统计每个区域的细胞类型组成
+      # -------------------------------
+      # 3.3 组成计算
+      # -------------------------------
       zone_composition <- df %>%
         dplyr::filter(!is.na(density_zone)) %>%
         dplyr::group_by(density_zone, celltype_clean) %>%
         dplyr::summarise(count = n(), .groups = "drop") %>%
         dplyr::group_by(density_zone) %>%
-        dplyr::mutate(
-          total = sum(count),
-          percentage = 100 * count / total
-        ) %>%
+        dplyr::mutate(total = sum(count),
+                      percentage = 100 * count / total) %>%
         dplyr::ungroup() %>%
         dplyr::mutate(sample = sample_id)
       
-      cat(sprintf("   ✅ 密度分区完成，共 %d 个区域\n", 
-                  length(unique(zone_composition$density_zone))))
+      cat(sprintf("   ✅ 密度分区完成 (%d zones)\n", length(unique(zone_composition$density_zone))))
       
-      # 打印每个zone的统计
-      zone_stats <- df %>%
-        dplyr::filter(!is.na(density_zone)) %>%
-        dplyr::group_by(density_zone) %>%
-        dplyr::summarise(
-          n_spots = n(),
-          mean_density = mean(density_value, na.rm = TRUE),
-          .groups = "drop"
-        ) %>%
-        dplyr::arrange(density_zone)
-      
-      cat("   Zone统计:\n")
-      for (j in 1:nrow(zone_stats)) {
-        cat(sprintf("     %s: %d spots (mean density: %.3f)\n",
-                    zone_stats$density_zone[j],
-                    zone_stats$n_spots[j],
-                    zone_stats$mean_density[j]))
-      }
-      
-      # 保存到总体数据
       all_sample_stats[[sample_id]] <- zone_composition
       combined_data <- dplyr::bind_rows(combined_data, zone_composition)
       
       # -------------------------------
-      # 3.3 绘制叠加图
+      # 3.4 绘制叠加图
       # -------------------------------
       if (plot_overlay) {
         p_overlay <- plot_celltype_density_overlay(
@@ -227,13 +204,15 @@ analyze_celltype_niche <- function(
         ggsave(
           file.path(CONFIG$dirs$overlay, sprintf("celltype_overlay_%s.pdf", safe_name)),
           plot = p_overlay,
-          width = 12, height = 10, dpi = CONFIG$plot$dpi %||% 300
+          width = 12, height = 10,
+          dpi = CONFIG$plot$dpi %||% 300,
+          bg = "white"
         )
         cat("   ✅ 保存叠加图\n")
       }
       
       # -------------------------------
-      # 3.4 绘制组成图
+      # 3.5 绘制组成图
       # -------------------------------
       if (plot_composition) {
         p_comp <- plot_zone_composition(
@@ -246,7 +225,9 @@ analyze_celltype_niche <- function(
         ggsave(
           file.path(CONFIG$dirs$composition, sprintf("composition_%s.pdf", safe_name)),
           plot = p_comp,
-          width = 12, height = 6, dpi = CONFIG$plot$dpi %||% 300
+          width = 12, height = 6,
+          dpi = CONFIG$plot$dpi %||% 300,
+          bg = "white"
         )
         cat("   ✅ 保存组成图\n")
       }
@@ -257,81 +238,45 @@ analyze_celltype_niche <- function(
   }
   
   # ========================================
-  # 4. 合并所有样本的统计分析
+  # 4. 合并总体结果
   # ========================================
   if (nrow(combined_data) > 0) {
-    cat("\n")
-    cat(rep("=", 80), "\n", sep = "")
-    cat("📈 合并所有样本进行统计分析\n")
-    cat(rep("=", 80), "\n\n", sep = "")
+    cat("\n📈 开始绘制综合统计图...\n")
     
-    # -------------------------------
-    # 4.1 绘制热图
-    # -------------------------------
     if (plot_heatmap) {
-      p_heatmap <- plot_combined_heatmap(
-        combined_data = combined_data,
-        CONFIG = CONFIG
-      )
-      
+      p_heatmap <- plot_combined_heatmap(combined_data = combined_data, CONFIG = CONFIG)
       ggsave(
         file.path(CONFIG$dirs$heatmaps, "celltype_heatmap_all_samples.pdf"),
-        plot = p_heatmap,
-        width = 14, height = 10, dpi = CONFIG$plot$dpi %||% 300
+        plot = p_heatmap, width = 14, height = 10, dpi = CONFIG$plot$dpi %||% 300, bg = "white"
       )
-      cat("✅ 保存合并热图\n")
+      cat("✅ 保存热图\n")
     }
     
-    # -------------------------------
-    # 4.2 绘制综合分析图
-    # -------------------------------
     if (plot_combined) {
-      p_combined <- plot_combined_analysis(
-        combined_data = combined_data,
-        CONFIG = CONFIG
-      )
-      
+      p_combined <- plot_combined_analysis(combined_data = combined_data, CONFIG = CONFIG)
       ggsave(
         file.path(CONFIG$dirs$combined, "combined_analysis.pdf"),
-        plot = p_combined,
-        width = 16, height = 12, dpi = CONFIG$plot$dpi %||% 300
+        plot = p_combined, width = 16, height = 12, dpi = CONFIG$plot$dpi %||% 300, bg = "white"
       )
       cat("✅ 保存综合分析图\n")
     }
     
-    # -------------------------------
-    # 4.3 保存统计数据
-    # -------------------------------
-    write.csv(
-      combined_data,
-      file.path(CONFIG$dirs$composition, "celltype_composition_all_samples.csv"),
-      row.names = FALSE
-    )
-    cat("✅ 保存统计数据 CSV\n")
+    write.csv(combined_data,
+              file.path(CONFIG$dirs$composition, "celltype_composition_all_samples.csv"),
+              row.names = FALSE)
     
-    # -------------------------------
-    # 4.4 统计摘要
-    # -------------------------------
     summary_stats <- generate_summary_statistics(combined_data)
-    write.csv(
-      summary_stats,
-      file.path(CONFIG$dirs$composition, "summary_statistics.csv"),
-      row.names = FALSE
-    )
-    cat("✅ 保存统计摘要\n")
+    write.csv(summary_stats,
+              file.path(CONFIG$dirs$composition, "summary_statistics.csv"),
+              row.names = FALSE)
+    
+    cat("✅ 保存统计数据与摘要\n")
   }
   
-  # ========================================
-  # 5. 返回结果
-  # ========================================
-  cat("\n")
-  cat(rep("=", 80), "\n", sep = "")
-  cat("✅ 分析完成！\n")
-  cat(rep("=", 80), "\n\n", sep = "")
+  cat("\n✅ 分析完成！\n")
   
   invisible(list(
     sample_stats = all_sample_stats,
-    combined_data = combined_data,
-    summary_stats = if(exists("summary_stats")) summary_stats else NULL
+    combined_data = combined_data
   ))
 }

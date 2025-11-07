@@ -35,9 +35,17 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   n_zones <- length(unique(density_data$grid$density_zone))
   zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
   
-  # 使用统一的颜色方案
-  zone_colors <- get_zone_colors(n_zones)
-  celltype_colors <- get_celltype_colors(unique(df$celltype_clean))
+  # 使用统一的颜色方案（来自 CONFIG，不再重新生成）  
+  zone_colors <- CONFIG$colors$zone_colors %||% get_zone_colors(n_zones)
+  celltype_colors <- CONFIG$colors$celltype_colors %||% get_celltype_colors(unique(df$celltype_clean))
+
+  # 确保 celltype 因子的顺序与颜色表一致
+  df_filtered <- df %>% 
+    dplyr::filter(!is.na(density_zone)) %>%
+    dplyr::mutate(
+      density_zone = factor(density_zone, levels = zone_levels),
+      celltype_clean = factor(celltype_clean, levels = names(celltype_colors))
+    )
   
   # 使用切片的实际范围，并添加边距
   col_range_raw <- density_data$col_range
