@@ -1,265 +1,330 @@
-#!/usr/bin/env Rscript
 # ===================================================================
-# 汇总统计模块
+# 10_summary.R (简化版)
+# 结果汇总打印模块
+# Author: Assistant
+# Date: 2025-11-07
 # ===================================================================
 
-#' 打印样本汇总
+#' 打印分析完成汇总
 #' 
-#' @param results 结果列表
-#' @param sample_list 样本列表
-#' @param elapsed 耗时
-print_sample_summary <- function(results, sample_list, elapsed) {
+#' @param results_list 结果列表（来自 run_celltype_analysis）
+#' @param CONFIG 配置对象
+#' @param total_elapsed 总耗时（秒）
+#' @param combined_data 合并数据（可选）
+#'
+#' @details
+#' 打印内容：
+#' - 成功/失败样本统计
+#' - 每个样本的详细信息（spots数、high密度、zones数、细胞类型数）
+#' - 总耗时和平均耗时
+#' - 输出文件位置
+#' - 合并数据统计
+#'
+print_analysis_summary <- function(results_list, CONFIG, total_elapsed, combined_data = NULL) {
   
-  n_success <- sum(sapply(results, function(x) x$success))
-  n_failed <- length(results) - n_success
+  n_samples <- length(results_list)
+  n_success <- sum(sapply(results_list, function(x) !is.null(x$stats)))
+  n_failed <- n_samples - n_success
   
   cat("\n")
-  cat("═══════════════════════════════════════════════════════════\n")
-  cat("   样本处理完成\n")
-  cat("═══════════════════════════════════════════════════════════\n\n")
+  cat("╔════════════════════════════════════════════════════════════════╗\n")
+  cat("║                    📊 分析汇总报告                            ║\n")
+  cat("╚════════════════════════════════════════════════════════════════╝\n\n")
   
-  cat(sprintf("✅ 成功: %d/%d (%.1f%%)\n", 
-              n_success, 
-              length(sample_list),
-              100 * n_success / length(sample_list)))
+  # ========================================
+  # 1. 基本统计
+  # ========================================
+  
+  cat("📈 样本处理统计:\n")
+  cat(sprintf("   ✅ 成功: %d/%d (%.1f%%)\n", 
+              n_success, n_samples, 100 * n_success / n_samples))
   
   if (n_failed > 0) {
-    cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, length(sample_list)))
-    cat("失败样本:\n")
-    for (res in results) {
-      if (!res$success) {
-        cat(sprintf("  • %s: %s\n", res$sample, res$error))
-      }
-    }
-    cat("\n")
+    cat(sprintf("   ❌ 失败: %d/%d (%.1f%%)\n", 
+                n_failed, n_samples, 100 * n_failed / n_samples))
   }
   
+  cat(sprintf("   ⏱️  总耗时: %.2f 秒 (%.2f 分钟)\n", 
+              total_elapsed, total_elapsed / 60))
+  
   if (n_success > 0) {
-    cat("成功样本:\n")
-    cat(sprintf("%-30s %8s %7s %8s %7s %8s %7s %10s\n",
-                "样本", "Spots", "High", "High%", "Zones", "Types", "NA", "大小(MB)"))
-    cat(paste(rep("-", 100), collapse = ""), "\n")
+    cat(sprintf("   📊 平均耗时: %.2f 秒/样本\n", total_elapsed / n_samples))
+  }
+  
+  cat("\n")
+  
+  # ========================================
+  # 2. 样本详情表格
+  # ========================================
+  
+  if (n_success > 0) {
+    cat("📋 样本详情:\n")
+    cat(sprintf("%-35s %10s %12s %10s %12s\n",
+                "样本ID", "Spots", "High密度", "Zones", "细胞类型"))
+    cat(paste(rep("─", 80), collapse = ""), "\n")
     
-    total_size <- 0
     total_spots <- 0
+    total_high <- 0
     
-    for (res in results) {
-      if (res$success) {
-        cat(sprintf("%-30s %8d %7d %7.2f%% %7d %8d %7d %10.2f\n",
-                    res$sample,
-                    res$n_spots,
-                    res$n_high,
-                    res$high_pct,
-                    res$n_zones,
-                    res$n_celltypes,
-                    res$n_na_zones,
-                    res$total_size_mb))
+    for (sid in names(results_list)) {
+      res <- results_list[[sid]]
+      
+      if (!is.null(res$stats)) {
+        cat(sprintf("%-35s %10d %12d %10d %12d\n",
+                    substr(sid, 1, 35),  # 限制样本ID长度
+                    res$stats$n_spots,
+                    res$stats$n_high_density,
+                    length(unique(res$zone_composition$density_zone)),
+                    res$stats$n_celltypes))
         
-        total_size <- total_size + res$total_size_mb
-        total_spots <- total_spots + res$n_spots
+        total_spots <- total_spots + res$stats$n_spots
+        total_high <- total_high + res$stats$n_high_density
       }
     }
     
     if (n_success > 1) {
-      cat(paste(rep("-", 100), collapse = ""), "\n")
-      cat(sprintf("%-30s %8d %7s %8s %7s %8s %7s %10.2f\n",
-                  "总计",
-                  total_spots,
-                  "-", "-", "-", "-", "-",
-                  total_size))
+      cat(paste(rep("─", 80), collapse = ""), "\n")
+      cat(sprintf("%-35s %10d %12d %10s %12s\n",
+                  "总计", total_spots, total_high, "-", "-"))
     }
     
     cat("\n")
   }
   
-  cat(sprintf("⏱️  样本处理耗时: %.2f 秒 (平均 %.2f 秒/样本)\n\n", 
-              as.numeric(elapsed),
-              as.numeric(elapsed) / length(sample_list)))
+  # ========================================
+  # 3. 失败样本列表（如果有）
+  # ========================================
+  
+  if (n_failed > 0) {
+    cat("❌ 失败样本:\n")
+    
+    for (sid in names(results_list)) {
+      res <- results_list[[sid]]
+      if (is.null(res$stats)) {
+        cat(sprintf("   • %s: 处理失败\n", sid))
+      }
+    }
+    
+    cat("\n")
+  }
+  
+  # ========================================
+  # 4. 输出文件位置
+  # ========================================
+  
+  cat("📁 输出位置:\n")
+  cat(sprintf("   • 图表目录: %s\n", CONFIG$output$plot_dir))
+  cat(sprintf("   • 数据目录: %s\n", CONFIG$output$data_dir))
+  
+  # 统计文件大小
+  if (dir.exists(CONFIG$output$plot_dir)) {
+    plot_files <- list.files(CONFIG$output$plot_dir, full.names = TRUE, recursive = TRUE)
+    total_plot_size <- sum(file.size(plot_files), na.rm = TRUE) / 1024^2
+    cat(sprintf("   • 图表文件: %d 个 (%.2f MB)\n", 
+                length(plot_files), total_plot_size))
+  }
+  
+  if (dir.exists(CONFIG$output$data_dir)) {
+    data_files <- list.files(CONFIG$output$data_dir, full.names = TRUE, recursive = TRUE)
+    total_data_size <- sum(file.size(data_files), na.rm = TRUE) / 1024^2
+    cat(sprintf("   • 数据文件: %d 个 (%.2f MB)\n", 
+                length(data_files), total_data_size))
+  }
+  
+  cat("\n")
+  
+  # ========================================
+  # 5. 合并数据统计
+  # ========================================
+  
+  if (!is.null(combined_data) && nrow(combined_data) > 0) {
+    cat("📊 合并数据统计:\n")
+    cat(sprintf("   • 总记录数: %d\n", nrow(combined_data)))
+    cat(sprintf("   • 细胞类型: %d 种\n", length(unique(combined_data$celltype_clean))))
+    cat(sprintf("   • 密度区域: %d 个\n", length(unique(combined_data$density_zone))))
+    cat(sprintf("   • 样本数: %d\n", length(unique(combined_data$sample))))
+    
+    # 数据完整性
+    completeness <- 100 * (1 - sum(is.na(combined_data)) / (nrow(combined_data) * ncol(combined_data)))
+    cat(sprintf("   • 数据完整性: %.2f%%\n", completeness))
+    
+    cat("\n")
+  }
+  
+  # ========================================
+  # 6. 结束标志
+  # ========================================
+  
+  cat("╔════════════════════════════════════════════════════════════════╗\n")
+  cat("║                   ✅ 分析完成！                               ║\n")
+  cat("╚════════════════════════════════════════════════════════════════╝\n\n")
   
   invisible(NULL)
 }
 
 
-#' 收集合并数据
+#' 打印简短进度信息
 #' 
-#' @param results 结果列表
-#' @return 合并的数据框
-collect_combined_data <- function(results) {
+#' @param i 当前索引
+#' @param total 总数
+#' @param sample_id 样本ID
+#' @param status 状态（"处理中"/"完成"/"失败"）
+#' @param extra_info 额外信息（可选）
+#'
+print_progress <- function(i, total, sample_id, status = "处理中", extra_info = NULL) {
   
-  combined_data <- data.frame()
+  # 状态图标
+  status_icon <- switch(status,
+    "处理中" = "⏳",
+    "完成" = "✅",
+    "失败" = "❌",
+    "跳过" = "⚠️",
+    "⚪"  # 默认
+  )
   
-  for (res in results) {
-    if (res$success) {
-      combined_data <- dplyr::bind_rows(combined_data, res$zone_composition)
+  # 构建输出
+  output <- sprintf("[%2d/%2d] %s %s", i, total, status_icon, sample_id)
+  
+  if (!is.null(extra_info)) {
+    output <- paste0(output, " - ", extra_info)
+  }
+  
+  cat(output, "\n")
+}
+
+
+#' 打印细胞类型颜色映射
+#' 
+#' @param CONFIG 配置对象（必须包含 CONFIG$colors$celltype）
+#' @param max_display 最多显示的细胞类型数量
+#'
+print_color_mapping <- function(CONFIG, max_display = 10) {
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$celltype)) {
+    cat("⚠️  全局颜色方案未初始化\n")
+    return(invisible(NULL))
+  }
+  
+  celltype_colors <- CONFIG$colors$celltype
+  n_celltypes <- length(celltype_colors)
+  
+  cat("\n🎨 全局细胞类型颜色映射:\n")
+  
+  if (n_celltypes <= max_display) {
+    # 显示所有
+    for (ct in names(celltype_colors)) {
+      cat(sprintf("   • %-30s → %s\n", ct, celltype_colors[ct]))
+    }
+  } else {
+    # 只显示前 max_display 个
+    celltypes_to_show <- names(celltype_colors)[1:max_display]
+    for (ct in celltypes_to_show) {
+      cat(sprintf("   • %-30s → %s\n", ct, celltype_colors[ct]))
+    }
+    cat(sprintf("   ... 还有 %d 个细胞类型\n", n_celltypes - max_display))
+  }
+  
+  cat("\n")
+  
+  invisible(NULL)
+}
+
+
+#' 打印zone颜色映射
+#' 
+#' @param CONFIG 配置对象（必须包含 CONFIG$colors$density_zone）
+#'
+print_zone_colors <- function(CONFIG) {
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$density_zone)) {
+    cat("⚠️  密度区域颜色方案未初始化\n")
+    return(invisible(NULL))
+  }
+  
+  zone_colors <- CONFIG$colors$density_zone
+  
+  cat("\n🎨 密度区域颜色映射:\n")
+  cat("   (Zone_0=核心/高密度 → Zone_N=外围/低密度)\n\n")
+  
+  for (zone in names(zone_colors)) {
+    cat(sprintf("   • %-10s → %s\n", zone, zone_colors[zone]))
+  }
+  
+  cat("\n")
+  
+  invisible(NULL)
+}
+
+
+#' 生成Markdown格式的报告摘要
+#' 
+#' @param results_list 结果列表
+#' @param CONFIG 配置对象
+#' @param total_elapsed 总耗时
+#' @param output_file 输出文件路径（默认在data_dir中）
+#'
+generate_markdown_summary <- function(results_list, CONFIG, total_elapsed, 
+                                     output_file = NULL) {
+  
+  if (is.null(output_file)) {
+    output_file <- file.path(CONFIG$output$data_dir, "analysis_summary.md")
+  }
+  
+  n_samples <- length(results_list)
+  n_success <- sum(sapply(results_list, function(x) !is.null(x$stats)))
+  
+  # 构建Markdown内容
+  md_content <- c(
+    "# 细胞类型密度分布分析报告",
+    "",
+    sprintf("**生成时间**: %s", Sys.time()),
+    sprintf("**分析样本**: %d", n_samples),
+    sprintf("**成功样本**: %d (%.1f%%)", n_success, 100 * n_success / n_samples),
+    sprintf("**总耗时**: %.2f 秒 (%.2f 分钟)", total_elapsed, total_elapsed / 60),
+    "",
+    "## 样本详情",
+    "",
+    "| 样本ID | Spots | High密度 | Zones | 细胞类型 |",
+    "|--------|-------|----------|-------|----------|"
+  )
+  
+  for (sid in names(results_list)) {
+    res <- results_list[[sid]]
+    if (!is.null(res$stats)) {
+      md_content <- c(md_content,
+        sprintf("| %s | %d | %d | %d | %d |",
+                sid,
+                res$stats$n_spots,
+                res$stats$n_high_density,
+                length(unique(res$zone_composition$density_zone)),
+                res$stats$n_celltypes)
+      )
     }
   }
   
-  return(combined_data)
-}
-
-
-#' 生成综合分析
-#' 
-#' @param combined_data 合并数据
-#' @param CONFIG 配置对象
-#' @param seurat_basename 基础名
-#' @param plot_heatmap 是否绘制热图
-#' @param plot_combined 是否绘制综合图
-generate_combined_analysis <- function(combined_data, CONFIG, seurat_basename,
-                                       plot_heatmap, plot_combined) {
-  
-  cat("═══════════════════════════════════════════════════════════\n")
-  cat("   生成综合统计图\n")
-  cat("═══════════════════════════════════════════════════════════\n\n")
-  
-  combined_start <- Sys.time()
-  
-  main_title <- seurat_basename %||% "Seurat Object"
-  
-  # 热图
-  if (plot_heatmap) {
-    cat("📊 生成细胞类型热图...\n")
-    
-    tryCatch({
-      p_heatmap <- plot_combined_heatmap(
-        combined_data = combined_data, 
-        CONFIG = CONFIG
-      ) + ggplot2::ggtitle(main_title)
-      
-      heatmap_file <- file.path(
-        CONFIG$dirs$heatmaps, 
-        "celltype_heatmap_all_samples.pdf"
-      )
-      
-      ggplot2::ggsave(
-        heatmap_file,
-        plot = p_heatmap, 
-        width = 14, 
-        height = 10, 
-        dpi = CONFIG$plot$dpi %||% 300, 
-        bg = "white"
-      )
-      
-      cat(sprintf("   ✅ 保存: %s (%.2f MB)\n", 
-                  basename(heatmap_file),
-                  file.size(heatmap_file) / 1024^2))
-    }, error = function(e) {
-      cat(sprintf("   ⚠️  热图生成失败: %s\n", e$message))
-    })
-  }
-  
-  # 综合分析图
-  if (plot_combined) {
-    cat("📊 生成综合分析图...\n")
-    
-    tryCatch({
-      p_combined <- plot_combined_analysis(
-        combined_data = combined_data, 
-        CONFIG = CONFIG
-      ) + ggplot2::ggtitle(main_title)
-      
-      combined_file <- file.path(
-        CONFIG$dirs$combined, 
-        "combined_analysis.pdf"
-      )
-      
-      ggplot2::ggsave(
-        combined_file,
-        plot = p_combined, 
-        width = 16, 
-        height = 12, 
-        dpi = CONFIG$plot$dpi %||% 300, 
-        bg = "white"
-      )
-      
-      cat(sprintf("   ✅ 保存: %s (%.2f MB)\n", 
-                  basename(combined_file),
-                  file.size(combined_file) / 1024^2))
-    }, error = function(e) {
-      cat(sprintf("   ⚠️  综合图生成失败: %s\n", e$message))
-    })
-  }
-  
-  # 保存数据
-  cat("💾 保存统计数据...\n")
-  
-  composition_csv <- file.path(
-    CONFIG$dirs$composition, 
-    "celltype_composition_all_samples.csv"
+  md_content <- c(md_content,
+    "",
+    "## 输出文件",
+    "",
+    sprintf("- **图表目录**: `%s`", CONFIG$output$plot_dir),
+    sprintf("- **数据目录**: `%s`", CONFIG$output$data_dir),
+    "",
+    "## 参数配置",
+    "",
+    sprintf("- **密度阈值**: %.2f", CONFIG$params$density_threshold_percentile),
+    sprintf("- **区域数量**: %d", CONFIG$params$n_zones),
+    "",
+    "---",
+    "",
+    "*Report generated by 08_plot_celltype.R*"
   )
-  write.csv(combined_data, composition_csv, row.names = FALSE)
-  cat(sprintf("   ✅ 组成数据: %s\n", basename(composition_csv)))
   
-  tryCatch({
-    summary_stats <- generate_summary_statistics(combined_data)
-    summary_csv <- file.path(
-      CONFIG$dirs$composition, 
-      "summary_statistics.csv"
-    )
-    write.csv(summary_stats, summary_csv, row.names = FALSE)
-    cat(sprintf("   ✅ 汇总统计: %s\n", basename(summary_csv)))
-  }, error = function(e) {
-    cat(sprintf("   ⚠️  统计计算失败: %s\n", e$message))
-  })
+  # 写入文件
+  writeLines(md_content, output_file)
   
-  combined_end <- Sys.time()
-  combined_elapsed <- difftime(combined_end, combined_start, units = "secs")
+  cat(sprintf("📝 Markdown报告已保存: %s\n", output_file))
   
-  cat(sprintf("\n⏱️  综合图生成耗时: %.2f 秒\n", as.numeric(combined_elapsed)))
-  
-  invisible(NULL)
+  invisible(output_file)
 }
 
-
-#' 打印最终汇总
-#' 
-#' @param results 结果列表
-#' @param sample_list 样本列表
-#' @param start_time 开始时间
-#' @param combined_data 合并数据
-#' @param plot_overlay 是否绘制叠加图
-#' @param plot_composition 是否绘制组成图
-#' @param plot_heatmap 是否绘制热图
-#' @param plot_combined 是否绘制综合图
-#' @param CONFIG 配置对象
-print_final_summary <- function(results, sample_list, start_time, combined_data,
-                               plot_overlay, plot_composition, plot_heatmap, 
-                               plot_combined, CONFIG) {
-  
-  total_elapsed <- difftime(Sys.time(), start_time, units = "secs")
-  n_success <- sum(sapply(results, function(x) x$success))
-  
-  cat("\n")
-  cat("═══════════════════════════════════════════════════════════\n")
-  cat("   分析完成\n")
-  cat("═══════════════════════════════════════════════════════════\n\n")
-  
-  cat(sprintf("✅ 成功: %d/%d\n", n_success, length(sample_list)))
-  cat(sprintf("⏱️  总耗时: %.2f 秒 (%.2f 分钟)\n", 
-              as.numeric(total_elapsed),
-              as.numeric(total_elapsed) / 60))
-  
-  if (n_success > 0) {
-    cat("\n📊 生成内容:\n")
-    if (plot_overlay) 
-      cat(sprintf("   • 叠加图: %d 个\n", n_success))
-    if (plot_composition) 
-      cat(sprintf("   • 组成图: %d 个\n", n_success))
-    if (plot_heatmap && nrow(combined_data) > 0) 
-      cat("   • 热图: 1 个\n")
-    if (plot_combined && nrow(combined_data) > 0) 
-      cat("   • 综合图: 1 个\n")
-  }
-  
-  cat("\n📁 输出目录:\n")
-  cat(sprintf("   • Overlay:     %s\n", CONFIG$dirs$overlay))
-  cat(sprintf("   • Composition: %s\n", CONFIG$dirs$composition))
-  cat(sprintf("   • Heatmaps:    %s\n", CONFIG$dirs$heatmaps))
-  cat(sprintf("   • Combined:    %s\n", CONFIG$dirs$combined))
-  
-  cat("\n═══════════════════════════════════════════════════════════\n\n")
-  
-  invisible(NULL)
-}
-
-cat("✅ 10_summary.R 已加载\n")
+cat("✅ 10_summary.R 已加载（简化版）\n")

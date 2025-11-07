@@ -1,6 +1,6 @@
 # 项目导出: 05_SSS_nihce
 
-**导出时间**: 2025-11-07 14:32:32
+**导出时间**: 2025-11-07 16:24:01
 **项目路径**: C:/Users/yh109/Documents/GitHub/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce
 
 ---
@@ -29,7 +29,6 @@
 │   ├── 06_plot_combined.R
 │   ├── 07_statistics.R
 │   ├── 08_validation.R
-│   ├── 09_save_plots.R
 │   └── 10_summary.R
 ├── 09_save_results.R
 ├── 10_batch_processing.R
@@ -45,17 +44,17 @@
 
 ## 文件统计
 
-- **总文件数**: 31
+- **总文件数**: 30
 - **文件类型分布**:
-  - .R: 31 个
-- **项目总大小**: 188.41 KB
+  - .R: 30 个
+- **项目总大小**: 229.02 KB
 
 ## 文件内容
 
 ### 00_config.R
 
 - **大小**: 3.91 KB
-- **修改时间**: 2025-11-07 12:35:33
+- **修改时间**: 2025-11-07 14:54:03
 
 ```r
 # 00_config.R (添加缓存设置)
@@ -83,7 +82,7 @@ CONFIG <- list(
   # ===== 分析参数 =====
   threshold_quantile = 0.95,
   niche_dist_method = "Euclidean",
-  n_workers = 12,
+  n_workers = 10,
   
   # ===== 绘图参数 =====
   plot = list(
@@ -246,8 +245,8 @@ CONFIG_EXAMPLE_7 <- list(
 
 ### 01_setup.R
 
-- **大小**: 10.61 KB
-- **修改时间**: 2025-11-07 13:41:55
+- **大小**: 10.71 KB
+- **修改时间**: 2025-11-07 14:48:24
 
 ```r
 #!/usr/bin/env Rscript
@@ -416,31 +415,37 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
   cat("   并行计算配置\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
-  # ---------------------------
-  # 1. 设置 future 并行策略
-  # ---------------------------
-  future::plan(future::sequential)  # 先重置为串行
+  # ✅ 添加在这里：禁用 SLURM 自动检测
+  Sys.setenv(R_FUTURE_PLAN = "multisession")
+  Sys.setenv(R_FUTURE_FORK_ENABLE = "false")
+  
+  # 设置 future 并行策略
+  future::plan(future::sequential)
   
   cat(sprintf("🔧 并行线程数: %d\n", n_workers))
   cat(sprintf("💾 内存限制: %d GB\n", memory_limit))
   
-  # ---------------------------
-  # 2. 设置全局选项
-  # ---------------------------
+  # 设置全局选项
   options(
-    future.globals.maxSize = Inf,  # 取消对象大小限制
-    future.rng.onMisuse = "ignore"  # 忽略随机数警告
+    future.globals.maxSize = Inf,
+    future.rng.onMisuse = "ignore"
   )
   
   cat("✓ future 全局选项已设置\n")
+  cat("✓ SLURM 检测已禁用\n")  # ✅ 添加提示
   
-  # ---------------------------
-  # 3. 设置 progressr handlers（全局唯一设置）
-  # ---------------------------
+  # 设置进度条
+  progressr::handlers(
+    progressr::handler_progress(
+      format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
+      width    = 80,
+      complete = "=",
+      clear    = FALSE
+    )
+  )
   progressr::handlers(global = TRUE)
-  progressr::handlers("txtprogressbar")
   
-  cat("✓ progressr 进度条已启用\n\n")
+  cat("✓ progressr 进度条已启用（全局模式）\n\n")
   
   return(invisible(NULL))
 }
@@ -1360,19 +1365,16 @@ quick_diagnose_niche <- function(seurat_obj) {
 
 ### 06_plot_isoheight.R
 
-- **大小**: 10.14 KB
-- **修改时间**: 2025-11-07 13:59:07
+- **大小**: 8.95 KB
+- **修改时间**: 2025-11-07 15:15:04
 
 ```r
 #!/usr/bin/env Rscript
 # ===================================================================
-# 等高线密度图绘制模块（优化版 + 进度条）
-# 功能：多线程并行绘制 Clock Gene 等高线密度图
+# 等高线密度图绘制模块（串联版 - 无并行依赖）
+# 功能：绘制 Clock Gene 等高线密度图
 # ===================================================================
 
-library(future)
-library(future.apply)
-library(progressr)
 library(ggplot2)
 
 
@@ -1404,7 +1406,7 @@ plot_isoheight <- function(sample_list,
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
-  cat("   等高线密度图绘制（多线程并行）\n")
+  cat("   等高线密度图绘制\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
@@ -1432,7 +1434,6 @@ plot_isoheight <- function(sample_list,
   size_bg <- CONFIG$plot$point_size_bg %||% 0.3
   size_top <- CONFIG$plot$point_size_top %||% 1.2
   dpi <- CONFIG$plot$dpi %||% 300
-  n_workers <- CONFIG$n_workers %||% 4
   
   # 默认色谱
   if (is.null(cols_fill_isoheight)) {
@@ -1442,163 +1443,136 @@ plot_isoheight <- function(sample_list,
     )
   }
   
-  cat(sprintf("📊 将绘制 %d 个样本\n", length(sample_list)))
-  cat(sprintf("🔧 使用 %d 个线程\n\n", n_workers))
-  
-  # ========================================
-  # 2. 设置并行环境
-  # ========================================
-  
-  future::plan(future::multisession, workers = n_workers)
-  options(future.globals.maxSize = Inf)
+  cat(sprintf("📊 将绘制 %d 个样本\n\n", length(sample_list)))
   
   start_time <- Sys.time()
   
   # ========================================
-  # 3. 设置进度条
-  # ========================================
-  
-  # 检查是否已经设置了 handlers
-  has_handlers <- !is.null(progressr::handlers(NULL))
-  
-  if (!has_handlers) {
-    # 如果没有设置，使用详细的进度条
-    progressr::handlers(list(
-      progressr::handler_progress(
-        format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
-        width    = 80,
-        complete = "=",
-        clear    = FALSE
-      )
-    ))
-  }
-  
-  # ========================================
-  # 4. 并行绘图
+  # 2. 串联绘图
   # ========================================
   
   cat("🎨 开始绘图...\n\n")
   
-  progressr::with_progress({
+  success_list <- list()
+  failed_list <- list()
+  total_samples <- length(sample_list)
+  
+  for (i in seq_along(sample_list)) {
     
-    p <- progressr::progressor(
-      steps = length(sample_list),
-      message = "绘制等高线图"
-    )
+    sample_id <- names(sample_list)[i]
     
-    results <- future.apply::future_lapply(
+    cat(sprintf("[%2d/%2d] ", i, total_samples))
+    
+    tryCatch({
       
-      names(sample_list), 
+      # 获取样本数据
+      seurat_subset <- sample_list[[sample_id]]
       
-      function(sample_id) {
-        
-        tryCatch({
-          
-          # 获取样本数据
-          seurat_subset <- sample_list[[sample_id]]
-          
-          # 验证数据
-          if (ncol(seurat_subset) == 0) {
-            p(message = sprintf("⚠️  %s - 无数据", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "No data"
-            ))
-          }
-          
-          if (!"ClockGene_High" %in% colnames(seurat_subset@meta.data)) {
-            p(message = sprintf("⚠️  %s - 缺少 ClockGene_High 列", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "Missing ClockGene_High column"
-            ))
-          }
-          
-          n_high <- sum(seurat_subset$ClockGene_High, na.rm = TRUE)
-          
-          if (n_high == 0) {
-            p(message = sprintf("⚠️  %s - 无高表达点", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "No high expression spots"
-            ))
-          }
-          
-          # 绘图
-          p_iso <- celltype_isoheight_plot(
-            .data = seurat_subset,
-            density_top = ClockGene_High,
-            col_bg = col_bg,
-            col_top = col_top,
-            col_isoheight = col_isoheight,
-            col_white_ratio = col_white_ratio,
-            cols_fill_isoheight = cols_fill_isoheight,
-            size_bg = size_bg,
-            size_top = size_top,
-            nrow = nrow
-          )
-          
-          # 保存
-          safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-          output_file <- sprintf("ClockGene_isoheight_%s.pdf", safe_name)
-          output_path <- file.path(CONFIG$dirs$isoheight, output_file)
-          
-          ggplot2::ggsave(
-            filename = output_path,
-            plot = p_iso, 
-            width = plot_width, 
-            height = plot_height, 
-            dpi = dpi
-          )
-          
-          # 统计
-          file_size_mb <- file.size(output_path) / 1024^2
-          n_spots <- ncol(seurat_subset)
-          high_pct <- 100 * n_high / n_spots
-          
-          # 更新进度（显示样本名）
-          p(message = sprintf("✅ %s (%.2f MB)", sample_id, file_size_mb))
-          
-          return(list(
-            sample = sample_id,
-            success = TRUE,
-            file = output_path,
-            file_size_mb = file_size_mb,
-            n_spots = n_spots,
-            n_high = n_high,
-            high_pct = high_pct
-          ))
-          
-        }, error = function(e) {
-          p(message = sprintf("❌ %s - %s", sample_id, e$message))
-          return(list(
-            sample = sample_id,
-            success = FALSE,
-            error = as.character(e$message)
-          ))
-        })
-      },
+      # 验证数据
+      if (ncol(seurat_subset) == 0) {
+        cat(sprintf("⚠️  %s - 无数据\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "No data"
+        )
+        next
+      }
       
-      future.seed = TRUE,
-      future.chunk.size = 1
-    )
-  })
+      if (!"ClockGene_High" %in% colnames(seurat_subset@meta.data)) {
+        cat(sprintf("⚠️  %s - 缺少 ClockGene_High 列\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "Missing ClockGene_High column"
+        )
+        next
+      }
+      
+      n_high <- sum(seurat_subset$ClockGene_High, na.rm = TRUE)
+      
+      if (n_high == 0) {
+        cat(sprintf("⚠️  %s - 无高表达点\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "No high expression spots"
+        )
+        next
+      }
+      
+      # 绘图
+      p_iso <- celltype_isoheight_plot(
+        .data = seurat_subset,
+        density_top = ClockGene_High,
+        col_bg = col_bg,
+        col_top = col_top,
+        col_isoheight = col_isoheight,
+        col_white_ratio = col_white_ratio,
+        cols_fill_isoheight = cols_fill_isoheight,
+        size_bg = size_bg,
+        size_top = size_top,
+        nrow = nrow
+      )
+      
+      # 保存
+      safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+      output_file <- sprintf("ClockGene_isoheight_%s.pdf", safe_name)
+      output_path <- file.path(CONFIG$dirs$isoheight, output_file)
+      
+      ggplot2::ggsave(
+        filename = output_path,
+        plot = p_iso, 
+        width = plot_width, 
+        height = plot_height, 
+        dpi = dpi
+      )
+      
+      # 统计
+      file_size_mb <- file.size(output_path) / 1024^2
+      n_spots <- ncol(seurat_subset)
+      high_pct <- 100 * n_high / n_spots
+      
+      # 输出成功信息
+      cat(sprintf("✅ %s (%.2f MB, %d spots, %.1f%% high)\n", 
+                 sample_id, file_size_mb, n_spots, high_pct))
+      
+      success_list[[sample_id]] <- list(
+        sample = sample_id,
+        success = TRUE,
+        file = output_path,
+        file_size_mb = file_size_mb,
+        n_spots = n_spots,
+        n_high = n_high,
+        high_pct = high_pct
+      )
+      
+      # 清理内存
+      rm(seurat_subset, p_iso)
+      if (i %% 3 == 0) gc(verbose = FALSE)
+      
+    }, error = function(e) {
+      cat(sprintf("❌ %s - %s\n", sample_id, e$message))
+      failed_list[[sample_id]] <- list(
+        sample = sample_id,
+        success = FALSE,
+        error = as.character(e$message)
+      )
+    })
+  }
   
   end_time <- Sys.time()
   elapsed <- difftime(end_time, start_time, units = "secs")
   
-  # 关闭并行
-  future::plan(future::sequential)
+  # 合并结果
+  results <- c(success_list, failed_list)
   
   # ========================================
-  # 5. 统计输出
+  # 3. 统计输出
   # ========================================
   
-  n_success <- sum(sapply(results, function(x) x$success))
-  n_failed <- length(results) - n_success
+  n_success <- length(success_list)
+  n_failed <- length(failed_list)
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
@@ -1607,16 +1581,15 @@ plot_isoheight <- function(sample_list,
   
   cat(sprintf("✅ 成功: %d/%d (%.1f%%)\n", 
               n_success, 
-              length(sample_list),
-              100 * n_success / length(sample_list)))
+              total_samples,
+              100 * n_success / total_samples))
   
   if (n_failed > 0) {
-    cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, length(sample_list)))
+    cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, total_samples))
     cat("失败样本:\n")
-    for (res in results) {
-      if (!res$success) {
-        cat(sprintf("  • %s: %s\n", res$sample, res$error))
-      }
+    for (sample_id in names(failed_list)) {
+      res <- failed_list[[sample_id]]
+      cat(sprintf("  • %s: %s\n", res$sample, res$error))
     }
     cat("\n")
   }
@@ -1629,16 +1602,15 @@ plot_isoheight <- function(sample_list,
     
     total_file_size <- 0
     
-    for (res in results) {
-      if (res$success) {
-        cat(sprintf("%-30s %10d %10d %9.1f%% %8.2f MB\n",
-                    res$sample,
-                    res$n_spots,
-                    res$n_high,
-                    res$high_pct,
-                    res$file_size_mb))
-        total_file_size <- total_file_size + res$file_size_mb
-      }
+    for (sample_id in names(success_list)) {
+      res <- success_list[[sample_id]]
+      cat(sprintf("%-30s %10d %10d %9.1f%% %8.2f MB\n",
+                  res$sample,
+                  res$n_spots,
+                  res$n_high,
+                  res$high_pct,
+                  res$file_size_mb))
+      total_file_size <- total_file_size + res$file_size_mb
     }
     
     cat(paste(rep("-", 80), collapse = ""), "\n")
@@ -1649,18 +1621,18 @@ plot_isoheight <- function(sample_list,
   
   cat(sprintf("⏱️  总耗时: %.2f 秒 (平均 %.2f 秒/样本)\n", 
               as.numeric(elapsed),
-              as.numeric(elapsed) / length(sample_list)))
+              as.numeric(elapsed) / total_samples))
   cat(sprintf("📁 输出目录: %s\n", CONFIG$dirs$isoheight))
   cat("\n═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
-  # 6. 返回结果
+  # 4. 返回结果
   # ========================================
   
   return(invisible(list(
     success = n_success,
     failed = n_failed,
-    total = length(sample_list),
+    total = total_samples,
     output_dir = CONFIG$dirs$isoheight,
     elapsed_time = as.numeric(elapsed),
     results = results
@@ -1683,47 +1655,41 @@ cat("✅ 06_plot_isoheight.R 已加载\n")
 
 ### 07_plot_spatial.R
 
-- **大小**: 11.8 KB
-- **修改时间**: 2025-11-07 14:00:36
+- **大小**: 14.19 KB
+- **修改时间**: 2025-11-07 15:37:42
 
 ```r
 #!/usr/bin/env Rscript
 # ===================================================================
-# 空间梯度图绘制模块（优化版 + 进度条）
-# 功能：绘制 Clock Gene 距离场的空间分布图
+# 空间梯度图绘制模块（串联版 - 正方形平铺）
+# 功能：绘制 Clock Gene Score 和 Distance 的空间梯度图
 # ===================================================================
 
-library(future)
-library(future.apply)
-library(progressr)
+library(Seurat)
 library(ggplot2)
+library(dplyr)
+library(tibble)
+library(patchwork)
+library(RANN)
 
 
-#' 绘制空间梯度图
+#' 绘制空间梯度图（接收预切分样本，正方形平铺）
 #'
-#' @param sample_list 预切分的样本列表
+#' @param sample_list 预切分的样本列表（来自 main.R）
 #' @param CONFIG 配置对象
-#' @param plot_width 图宽（英寸）
-#' @param plot_height 图高（英寸）
-#' @param pt_size_factor 点大小因子
-#' @param alpha 透明度范围
-#' @param color_option viridis 色板选项
-#' @param color_direction 色板方向
+#' @param plot_width 图宽
+#' @param plot_height 图高
 #' 
 #' @return 处理结果列表
 #'
-plot_spatial_gradient <- function(sample_list, 
+plot_spatial_gradient <- function(sample_list,
                                   CONFIG,
-                                  plot_width = 10,
-                                  plot_height = 8,
-                                  pt_size_factor = 1.5,
-                                  alpha = c(0.3, 1),
-                                  color_option = "magma",
-                                  color_direction = -1) {
+                                  plot_width = 16,
+                                  plot_height = 8) {
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
-  cat("   空间梯度图绘制（多线程并行）\n")
+  cat("   空间梯度图绘制（正方形平铺）\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
@@ -1744,192 +1710,299 @@ plot_spatial_gradient <- function(sample_list,
   }
   
   # 提取参数
-  n_workers <- CONFIG$n_workers %||% 4
+  expand_margin <- CONFIG$plot$expand_margin %||% 0.05
   dpi <- CONFIG$plot$dpi %||% 300
   
-  cat(sprintf("📊 将绘制 %d 个样本\n", length(sample_list)))
-  cat(sprintf("🔧 使用 %d 个线程\n\n", n_workers))
-  
-  # ========================================
-  # 2. 设置并行环境
-  # ========================================
-  
-  future::plan(future::multisession, workers = n_workers)
-  options(future.globals.maxSize = Inf)
+  cat(sprintf("📊 将绘制 %d 个样本\n\n", length(sample_list)))
   
   start_time <- Sys.time()
   
   # ========================================
-  # 3. 设置进度条
-  # ========================================
-  
-  # 检查是否已经设置了 handlers
-  has_handlers <- !is.null(progressr::handlers(NULL))
-  
-  if (!has_handlers) {
-    # 如果没有设置，使用详细的进度条
-    progressr::handlers(list(
-      progressr::handler_progress(
-        format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
-        width    = 80,
-        complete = "=",
-        clear    = FALSE
-      )
-    ))
-  }
-  
-  # ========================================
-  # 4. 并行绘图
+  # 2. 串联绘图
   # ========================================
   
   cat("🗺️  开始绘图...\n\n")
   
-  progressr::with_progress({
+  success_list <- list()
+  failed_list <- list()
+  total_samples <- length(sample_list)
+  
+  for (i in seq_along(sample_list)) {
     
-    p <- progressr::progressor(
-      steps = length(sample_list),
-      message = "绘制空间梯度图"
-    )
+    sample_id <- names(sample_list)[i]
     
-    results <- future.apply::future_lapply(
+    cat(sprintf("[%2d/%2d] ", i, total_samples))
+    
+    tryCatch({
       
-      names(sample_list),
+      # 获取样本数据
+      seurat_subset <- sample_list[[sample_id]]
       
-      function(sample_id) {
-        
-        tryCatch({
-          
-          # 获取样本数据
-          seurat_subset <- sample_list[[sample_id]]
-          
-          # 验证数据
-          if (ncol(seurat_subset) == 0) {
-            p(message = sprintf("⚠️  %s - 无数据", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "No data"
-            ))
-          }
-          
-          if (!"ClockGene_Distance" %in% colnames(seurat_subset@meta.data)) {
-            p(message = sprintf("⚠️  %s - 缺少距离数据", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "Missing ClockGene_Distance column"
-            ))
-          }
-          
-          # 检查空间数据
-          if (length(Seurat::Images(seurat_subset)) == 0) {
-            p(message = sprintf("⚠️  %s - 无空间图像数据", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "No spatial image data"
-            ))
-          }
-          
-          # 统计距离数据
-          distance_values <- seurat_subset$ClockGene_Distance
-          distance_stats <- list(
-            min = min(distance_values, na.rm = TRUE),
-            max = max(distance_values, na.rm = TRUE),
-            mean = mean(distance_values, na.rm = TRUE),
-            median = median(distance_values, na.rm = TRUE),
-            sd = sd(distance_values, na.rm = TRUE)
+      # --------------------------------
+      # 验证数据
+      # --------------------------------
+      if (ncol(seurat_subset) == 0) {
+        cat(sprintf("⚠️  %s - 无数据\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "No data"
+        )
+        next
+      }
+      
+      required_cols <- c("ClockGene_Score1", "ClockGene_Distance")
+      missing_cols <- setdiff(required_cols, colnames(seurat_subset@meta.data))
+      
+      if (length(missing_cols) > 0) {
+        cat(sprintf("⚠️  %s - 缺少列: %s\n", sample_id, paste(missing_cols, collapse = ", ")))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = sprintf("Missing columns: %s", paste(missing_cols, collapse = ", "))
+        )
+        next
+      }
+      
+      # --------------------------------
+      # 获取坐标
+      # --------------------------------
+      coords <- GetTissueCoordinates(
+        seurat_subset,
+        cols = c("row", "col"),
+        scale = NULL
+      )
+      
+      if (!all(c("row", "col") %in% colnames(coords))) {
+        cat(sprintf("⚠️  %s - 坐标列不完整\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "Incomplete coordinate columns"
+        )
+        next
+      }
+      
+      # --------------------------------
+      # 合并数据
+      # --------------------------------
+      plot_data <- seurat_subset@meta.data %>%
+        rownames_to_column("barcode") %>%
+        left_join(coords %>% rownames_to_column("barcode"), by = "barcode") %>%
+        filter(!is.na(col), !is.na(row))
+      
+      if (nrow(plot_data) == 0) {
+        cat(sprintf("⚠️  %s - 无有效坐标\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "No valid coordinates"
+        )
+        next
+      }
+      
+      # --------------------------------
+      # 自动计算正方形大小
+      # --------------------------------
+      if (nrow(plot_data) > 10000) {
+        sample_idx <- sample(nrow(plot_data), 10000)
+        coords_sample <- plot_data[sample_idx, c("col", "row")]
+      } else {
+        coords_sample <- plot_data[, c("col", "row")]
+      }
+      
+      nn_dist <- RANN::nn2(coords_sample, k = 2)$nn.dists[, 2]
+      median_dist <- median(nn_dist, na.rm = TRUE)
+      square_size <- median_dist * 1.0
+      
+      # --------------------------------
+      # 计算坐标范围
+      # --------------------------------
+      col_range <- range(plot_data$col, na.rm = TRUE)
+      row_range <- range(plot_data$row, na.rm = TRUE)
+      
+      col_limits <- col_range
+      row_limits <- row_range
+      
+      # --------------------------------
+      # 统计数据
+      # --------------------------------
+      score_stats <- list(
+        min = min(plot_data$ClockGene_Score1, na.rm = TRUE),
+        max = max(plot_data$ClockGene_Score1, na.rm = TRUE),
+        mean = mean(plot_data$ClockGene_Score1, na.rm = TRUE),
+        median = median(plot_data$ClockGene_Score1, na.rm = TRUE)
+      )
+      
+      distance_stats <- list(
+        min = min(plot_data$ClockGene_Distance, na.rm = TRUE),
+        max = max(plot_data$ClockGene_Distance, na.rm = TRUE),
+        mean = mean(plot_data$ClockGene_Distance, na.rm = TRUE),
+        median = median(plot_data$ClockGene_Distance, na.rm = TRUE)
+      )
+      
+      # --------------------------------
+      # 绘制左图：Clock Gene Score
+      # --------------------------------
+      p_score <- ggplot(plot_data, aes(x = col, y = row)) +
+        geom_tile(
+          aes(fill = ClockGene_Score1),
+          width = square_size,
+          height = square_size,
+          color = NA
+        ) +
+        scale_fill_gradientn(
+          colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
+          name = "Clock Gene\nScore",
+          na.value = "gray90"
+        ) +
+        scale_x_continuous(
+          limits = col_limits,
+          expand = c(0, 0)
+        ) +
+        scale_y_reverse(
+          limits = rev(row_limits),
+          expand = c(0, 0)
+        ) +
+        coord_fixed(
+          ratio = 1,
+          xlim = col_limits,
+          ylim = rev(row_limits),
+          clip = "on"
+        ) +
+        ggtitle(
+          "Clock Gene Score",
+          subtitle = sprintf("Mean: %.3f | Median: %.3f", 
+                           score_stats$mean, score_stats$median)
+        ) +
+        theme_void() +
+        theme(
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+          plot.subtitle = element_text(hjust = 0.5, size = 10),
+          legend.position = "right",
+          legend.title = element_text(size = 10, face = "bold"),
+          legend.text = element_text(size = 8),
+          plot.margin = margin(10, 10, 10, 10)
+        )
+      
+      # --------------------------------
+      # 绘制右图：Distance
+      # --------------------------------
+      p_distance <- ggplot(plot_data, aes(x = col, y = row)) +
+        geom_tile(
+          aes(fill = ClockGene_Distance),
+          width = square_size,
+          height = square_size,
+          color = NA
+        ) +
+        scale_fill_gradientn(
+          colors = rev(c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027")),
+          name = "Distance to\nHigh Score\nRegion",
+          na.value = "gray90"
+        ) +
+        scale_x_continuous(
+          limits = col_limits,
+          expand = c(0, 0)
+        ) +
+        scale_y_reverse(
+          limits = rev(row_limits),
+          expand = c(0, 0)
+        ) +
+        coord_fixed(
+          ratio = 1,
+          xlim = col_limits,
+          ylim = rev(row_limits),
+          clip = "on"
+        ) +
+        ggtitle(
+          "Distance to High Score Region",
+          subtitle = sprintf("Mean: %.2f | Median: %.2f", 
+                           distance_stats$mean, distance_stats$median)
+        ) +
+        theme_void() +
+        theme(
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+          plot.subtitle = element_text(hjust = 0.5, size = 10),
+          legend.position = "right",
+          legend.title = element_text(size = 10, face = "bold"),
+          legend.text = element_text(size = 8),
+          plot.margin = margin(10, 10, 10, 10)
+        )
+      
+      # --------------------------------
+      # 合并图形
+      # --------------------------------
+      p_combined <- (p_score | p_distance) +
+        plot_annotation(
+          title = sprintf("Clock Gene Niche Analysis - %s", sample_id),
+          theme = theme(
+            plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+            plot.margin = margin(10, 10, 10, 10)
           )
-          
-          # 绘制空间分布图
-          p_spatial <- Seurat::SpatialFeaturePlot(
-            seurat_subset,
-            features = "ClockGene_Distance",
-            pt.size.factor = pt_size_factor,
-            alpha = alpha,
-            stroke = 0
-          ) + 
-            ggplot2::scale_fill_viridis_c(
-              option = color_option,
-              direction = color_direction,
-              name = "Distance\nto High",
-              limits = c(0, NA)
-            ) +
-            ggplot2::theme_minimal() +
-            ggplot2::theme(
-              legend.position = "right",
-              legend.title = ggplot2::element_text(size = 12, face = "bold"),
-              legend.text = ggplot2::element_text(size = 10),
-              plot.title = ggplot2::element_text(size = 14, face = "bold", hjust = 0.5),
-              plot.subtitle = ggplot2::element_text(size = 10, hjust = 0.5)
-            ) +
-            ggplot2::ggtitle(
-              sprintf("Clock Gene Distance Field - %s", sample_id),
-              subtitle = sprintf(
-                "Mean: %.2f | Median: %.2f | Range: [%.2f, %.2f]",
-                distance_stats$mean,
-                distance_stats$median,
-                distance_stats$min,
-                distance_stats$max
-              )
-            )
-          
-          # 保存图形
-          safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-          output_file <- sprintf("ClockGene_spatial_%s.pdf", safe_name)
-          output_path <- file.path(CONFIG$dirs$spatial, output_file)
-          
-          ggplot2::ggsave(
-            filename = output_path,
-            plot = p_spatial,
-            width = plot_width,
-            height = plot_height,
-            dpi = dpi
-          )
-          
-          # 统计信息
-          file_size_mb <- file.size(output_path) / 1024^2
-          n_spots <- ncol(seurat_subset)
-          
-          # 更新进度（显示样本名和文件大小）
-          p(message = sprintf("✅ %s (%.2f MB)", sample_id, file_size_mb))
-          
-          return(list(
-            sample = sample_id,
-            success = TRUE,
-            file = output_path,
-            file_size_mb = file_size_mb,
-            n_spots = n_spots,
-            distance_stats = distance_stats
-          ))
-          
-        }, error = function(e) {
-          p(message = sprintf("❌ %s - %s", sample_id, e$message))
-          return(list(
-            sample = sample_id,
-            success = FALSE,
-            error = as.character(e$message)
-          ))
-        })
-      },
+        )
       
-      future.seed = TRUE,
-      future.chunk.size = 1
-    )
-  })
+      # --------------------------------
+      # 保存图形
+      # --------------------------------
+      safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+      output_file <- sprintf("ClockGene_spatial_%s.pdf", safe_name)
+      output_path <- file.path(CONFIG$dirs$spatial, output_file)
+      
+      ggsave(
+        filename = output_path,
+        plot = p_combined,
+        width = plot_width,
+        height = plot_height,
+        dpi = dpi
+      )
+      
+      # 统计信息
+      file_size_mb <- file.size(output_path) / 1024^2
+      n_spots <- nrow(plot_data)
+      
+      # 输出成功信息
+      cat(sprintf("✅ %s (%d spots, score: %.3f±%.3f, dist: %.2f±%.2f, %.2f MB)\n", 
+                 sample_id, n_spots, 
+                 score_stats$mean, sd(plot_data$ClockGene_Score1, na.rm = TRUE),
+                 distance_stats$mean, sd(plot_data$ClockGene_Distance, na.rm = TRUE),
+                 file_size_mb))
+      
+      success_list[[sample_id]] <- list(
+        sample = sample_id,
+        success = TRUE,
+        file = output_path,
+        file_size_mb = file_size_mb,
+        n_spots = n_spots,
+        score_stats = score_stats,
+        distance_stats = distance_stats
+      )
+      
+      # 清理内存
+      rm(seurat_subset, plot_data, p_score, p_distance, p_combined)
+      if (i %% 3 == 0) gc(verbose = FALSE)
+      
+    }, error = function(e) {
+      cat(sprintf("❌ %s - %s\n", sample_id, e$message))
+      failed_list[[sample_id]] <- list(
+        sample = sample_id,
+        success = FALSE,
+        error = as.character(e$message)
+      )
+    })
+  }
   
   end_time <- Sys.time()
   elapsed <- difftime(end_time, start_time, units = "secs")
   
-  # 关闭并行
-  future::plan(future::sequential)
+  # 合并结果
+  results <- c(success_list, failed_list)
   
   # ========================================
-  # 5. 统计输出
+  # 3. 统计输出
   # ========================================
   
-  n_success <- sum(sapply(results, function(x) x$success))
-  n_failed <- length(results) - n_success
+  n_success <- length(success_list)
+  n_failed <- length(failed_list)
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
@@ -1938,92 +2011,60 @@ plot_spatial_gradient <- function(sample_list,
   
   cat(sprintf("✅ 成功: %d/%d (%.1f%%)\n", 
               n_success, 
-              length(sample_list),
-              100 * n_success / length(sample_list)))
+              total_samples,
+              100 * n_success / total_samples))
   
   if (n_failed > 0) {
-    cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, length(sample_list)))
+    cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, total_samples))
     cat("失败样本:\n")
-    for (res in results) {
-      if (!res$success) {
-        cat(sprintf("  • %s: %s\n", res$sample, res$error))
-      }
+    for (sample_id in names(failed_list)) {
+      res <- failed_list[[sample_id]]
+      cat(sprintf("  • %s: %s\n", res$sample, res$error))
     }
     cat("\n")
   }
   
   if (n_success > 0) {
     cat("成功样本:\n")
-    cat(sprintf("%-30s %10s %12s %12s %12s %10s\n", 
-                "样本", "Spots", "平均距离", "中位距离", "标准差", "文件大小"))
-    cat(paste(rep("-", 95), collapse = ""), "\n")
+    cat(sprintf("%-30s %10s %12s %12s %10s\n", 
+                "样本", "Spots", "Mean Score", "Mean Dist", "文件大小"))
+    cat(paste(rep("-", 80), collapse = ""), "\n")
     
     total_file_size <- 0
-    total_spots <- 0
-    all_means <- c()
-    all_medians <- c()
     
-    for (res in results) {
-      if (res$success) {
-        cat(sprintf("%-30s %10d %12.2f %12.2f %12.2f %8.2f MB\n",
-                    res$sample,
-                    res$n_spots,
-                    res$distance_stats$mean,
-                    res$distance_stats$median,
-                    res$distance_stats$sd,
-                    res$file_size_mb))
-        
-        total_file_size <- total_file_size + res$file_size_mb
-        total_spots <- total_spots + res$n_spots
-        all_means <- c(all_means, res$distance_stats$mean)
-        all_medians <- c(all_medians, res$distance_stats$median)
-      }
+    for (sample_id in names(success_list)) {
+      res <- success_list[[sample_id]]
+      cat(sprintf("%-30s %10d %12.3f %12.2f %8.2f MB\n",
+                  res$sample,
+                  res$n_spots,
+                  res$score_stats$mean,
+                  res$distance_stats$mean,
+                  res$file_size_mb))
+      total_file_size <- total_file_size + res$file_size_mb
     }
     
-    cat(paste(rep("-", 95), collapse = ""), "\n")
-    
-    if (n_success > 1) {
-      cat(sprintf("%-30s %10d %12.2f %12.2f %12s %8.2f MB\n",
-                  "平均",
-                  as.integer(total_spots / n_success),
-                  mean(all_means),
-                  mean(all_medians),
-                  "-",
-                  total_file_size / n_success))
-      cat(sprintf("%-30s %10d %12s %12s %12s %8.2f MB\n",
-                  "总计",
-                  total_spots,
-                  "-",
-                  "-",
-                  "-",
-                  total_file_size))
-    } else {
-      cat(sprintf("%-30s %10s %12s %12s %12s %8.2f MB\n",
-                  "总计",
-                  "",
-                  "",
-                  "",
-                  "",
-                  total_file_size))
-    }
-    
+    cat(paste(rep("-", 80), collapse = ""), "\n")
+    cat(sprintf("%-30s %10s %12s %12s %8.2f MB\n",
+                "总计", "", "", "", total_file_size))
     cat("\n")
   }
   
   cat(sprintf("⏱️  总耗时: %.2f 秒 (平均 %.2f 秒/样本)\n", 
               as.numeric(elapsed),
-              as.numeric(elapsed) / length(sample_list)))
+              as.numeric(elapsed) / total_samples))
   cat(sprintf("📁 输出目录: %s\n", CONFIG$dirs$spatial))
+  cat("📐 使用正方形平铺 (geom_tile)\n")
+  cat("🔄 Y轴已反转以匹配 Isoheight 图\n")
   cat("\n═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
-  # 6. 返回结果
+  # 4. 返回结果
   # ========================================
   
   return(invisible(list(
     success = n_success,
     failed = n_failed,
-    total = length(sample_list),
+    total = total_samples,
     output_dir = CONFIG$dirs$spatial,
     elapsed_time = as.numeric(elapsed),
     results = results
@@ -2046,222 +2087,357 @@ cat("✅ 07_plot_spatial.R 已加载\n")
 
 ### 08_plot_celltype.R
 
-- **大小**: 6.56 KB
-- **修改时间**: 2025-11-07 14:03:13
+- **大小**: 12.05 KB
+- **修改时间**: 2025-11-07 16:21:32
 
 ```r
-#!/usr/bin/env Rscript
 # ===================================================================
-# 细胞类型 Niche 分析模块（简化版 + 进度条）
-# 功能：分析不同密度区域的细胞类型分布和富集
+# 08_plot_celltype.R
+# 细胞类型在密度区域中的分布分析（全局统一配色版）
+# Author: Assistant | Date: 2025-11-07 | Version: 2.0
 # ===================================================================
 
-library(future)
-library(future.apply)
-library(progressr)
-library(dplyr)
-library(ggplot2)
-library(tibble)
-library(patchwork)
+cat("🔧 加载 08_plot_celltype.R...\n")
 
-# ===================================================================
 # 加载工具函数
-# ===================================================================
+source(file.path(script_dir, "08_plot_celltype_utils/00_operators.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/01_color_schemes.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/02_density_zones.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/03_plot_overlay.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/04_plot_composition.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/05_plot_heatmap.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/06_plot_combined.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/07_statistics.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/08_validation.R"))
+source(file.path(script_dir, "08_plot_celltype_utils/10_summary.R"))
 
-utils_dir <- "08_plot_celltype_utils"
+cat("✅ 所有工具已加载\n\n")
 
-source(file.path(utils_dir, "00_operators.R"))
-source(file.path(utils_dir, "01_color_schemes.R"))
-source(file.path(utils_dir, "02_density_zones.R"))
-source(file.path(utils_dir, "03_plot_overlay.R"))
-source(file.path(utils_dir, "04_plot_composition.R"))
-source(file.path(utils_dir, "05_plot_heatmap.R"))
-source(file.path(utils_dir, "06_plot_combined.R"))
-source(file.path(utils_dir, "07_statistics.R"))
-source(file.path(utils_dir, "08_validation.R"))
-source(file.path(utils_dir, "09_save_plots.R"))
-source(file.path(utils_dir, "10_summary.R"))
-
-cat("✅ 已加载所有工具函数\n")
+validate_required_functions()
 
 
 # ===================================================================
-# 主函数：细胞类型 Niche 分析
+# 细胞类型名称标准化
 # ===================================================================
 
-#' 细胞类型 Niche 分析
-#'
-#' @param sample_list 预切分的样本列表（来自 main.R）
-#' @param CONFIG 配置对象
-#' @param density_bins 密度分区数量
-#' @param celltype_col 细胞类型列名
-#' @param plot_overlay 是否绘制叠加图
-#' @param plot_composition 是否绘制组成图
-#' @param plot_heatmap 是否绘制热图
-#' @param plot_combined 是否绘制综合图
-#' @param seurat_basename 文件基础名
+#' 标准化细胞类型名称
 #' 
+#' @param names 细胞类型名称向量
+#' @param mode 标准化模式 ("underscore"/"hyphen"/"space")
+#' @param title_case 是否首字母大写
+#' @return 标准化后的名称向量
+#'
+standardize_celltype_names <- function(names, mode = "underscore", title_case = TRUE) {
+  
+  # 基础清理
+  names <- as.character(names)
+  names <- trimws(names)
+  names[is.na(names) | names == ""] <- "Unknown"
+  
+  # 统一分隔符
+  if (mode == "underscore") {
+    names <- gsub("-", "_", names)
+    names <- gsub("\\s+", "_", names)
+  } else if (mode == "hyphen") {
+    names <- gsub("_", "-", names)
+    names <- gsub("\\s+", "-", names)
+  } else if (mode == "space") {
+    names <- gsub("_", " ", names)
+    names <- gsub("-", " ", names)
+    names <- gsub("\\s+", " ", names)
+  }
+  
+  # 首字母大写
+  if (title_case) {
+    separator <- if(mode == "underscore") "_" else if(mode == "hyphen") "-" else " "
+    
+    names <- sapply(names, function(name) {
+      if (name == "Unknown") return("Unknown")
+      parts <- strsplit(name, sprintf("[%s]", separator))[[1]]
+      parts <- tolower(parts)
+      parts <- paste0(toupper(substring(parts, 1, 1)), substring(parts, 2))
+      paste(parts, collapse = separator)
+    }, USE.NAMES = FALSE)
+  }
+  
+  # 去除前后多余分隔符
+  names <- gsub("^[_\\-\\s]+|[_\\-\\s]+$", "", names)
+  
+  # 保留常见缩写大写
+  names <- gsub("\\b(Smc)\\b", "SMC", names)
+  names <- gsub("\\b(Pp)\\b", "PP", names)
+  names <- gsub("\\b(Bv)\\b", "BV", names)
+  names <- gsub("\\b(Mv)\\b", "MV", names)
+  names <- gsub("\\b(Tv)\\b", "TV", names)
+  
+  return(names)
+}
+
+
+# ===================================================================
+# 单样本处理
+# ===================================================================
+
+#' 处理单个样本
+#'
+#' @param df 数据框（包含坐标和细胞类型）
+#' @param sample_id 样本ID
+#' @param CONFIG 配置列表
 #' @return 处理结果列表
 #'
-analyze_celltype_niche <- function(
-    sample_list,
-    CONFIG,
-    density_bins = 10,
-    celltype_col = "predicted.id",
-    plot_overlay = TRUE,
-    plot_composition = TRUE,
-    plot_heatmap = TRUE,
-    plot_combined = TRUE,
-    seurat_basename = NULL
-) {
+process_single_sample <- function(df, sample_id, CONFIG) {
   
-  cat("\n")
-  cat("═══════════════════════════════════════════════════════════\n")
-  cat("   细胞类型 Niche 分析（多线程并行）\n")
-  cat("═══════════════════════════════════════════════════════════\n\n")
+  cat(sprintf("\n[%s]\n", sample_id))
   
-  # ========================================
-  # 1. 参数验证
-  # ========================================
-  
-  validate_inputs(sample_list, CONFIG)
-  validate_required_functions()
-  
-  # ========================================
-  # 2. 初始化配置
-  # ========================================
-  
-  setup_colors(sample_list[[1]], CONFIG, celltype_col, density_bins)
-  
-  n_workers <- CONFIG$n_workers %||% 4
-  
-  cat(sprintf("📊 将分析 %d 个样本\n", length(sample_list)))
-  cat(sprintf("📊 密度分区: %d 个区域 (Zone_0=核心, Zone_%d=外围)\n", 
-              density_bins, density_bins - 1))
-  cat(sprintf("🔧 使用 %d 个线程\n\n", n_workers))
-  
-  # ========================================
-  # 3. 设置并行和进度条
-  # ========================================
-  
-  future::plan(future::multisession, workers = n_workers)
-  options(future.globals.maxSize = Inf)
-  
-  # 设置进度条
-  has_handlers <- !is.null(progressr::handlers(NULL))
-  
-  if (!has_handlers) {
-    progressr::handlers(list(
-      progressr::handler_progress(
-        format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
-        width    = 80,
-        complete = "=",
-        clear    = FALSE
-      )
-    ))
+  # 验证颜色方案
+  if (is.null(CONFIG$colors$celltype)) {
+    stop("❌ 全局颜色方案未初始化！请先调用 create_global_color_scheme()")
   }
   
-  start_time <- Sys.time()
+  # 标准化细胞类型名称
+  raw_celltypes <- df[[CONFIG$params$celltype_col]]
+  df$celltype_clean <- standardize_celltype_names(raw_celltypes, mode = "underscore", title_case = TRUE)
   
-  # ========================================
-  # 4. 并行处理样本
-  # ========================================
+  # 打印标准化示例
+  unique_raw <- unique(raw_celltypes)
+  unique_clean <- unique(df$celltype_clean)
+  n_show <- min(5, length(unique_raw))
   
-  cat("🔬 开始分析样本...\n\n")
+  cat("  🔄 细胞类型标准化:\n")
+  for (i in 1:n_show) {
+    if (unique_raw[i] != unique_clean[i]) {
+      cat(sprintf("     '%s' → '%s'\n", unique_raw[i], unique_clean[i]))
+    }
+  }
+  if (length(unique_raw) > 5) {
+    cat(sprintf("     ... 还有 %d 个\n", length(unique_raw) - 5))
+  }
   
-  progressr::with_progress({
-    
-    p <- progressr::progressor(
-      steps = length(sample_list),
-      message = "分析细胞类型 Niche"
+  # 检查未知细胞类型
+  all_celltypes_global <- names(CONFIG$colors$celltype)
+  sample_celltypes <- setdiff(unique(df$celltype_clean), "Unknown")
+  missing_types <- setdiff(sample_celltypes, all_celltypes_global)
+  
+  if (length(missing_types) > 0) {
+    warning(sprintf("  ⚠️  未知细胞类型: %s", paste(missing_types, collapse = ", ")))
+  }
+  
+  # 计算密度区域
+  density_data <- calculate_density_zones(
+    df = df,
+    col_col = CONFIG$params$col_col,
+    row_col = CONFIG$params$row_col,
+    density_threshold_percentile = CONFIG$params$density_threshold_percentile,
+    n_zones = CONFIG$params$n_zones,
+    grid_resolution = CONFIG$params$grid_resolution
+  )
+  
+  df$density_zone <- density_data$cell_zones
+  
+  # 计算zone组成
+  zone_composition <- df %>%
+    dplyr::filter(!is.na(density_zone)) %>%
+    dplyr::group_by(density_zone, celltype_clean) %>%
+    dplyr::summarise(count = n(), .groups = "drop") %>%
+    dplyr::group_by(density_zone) %>%
+    dplyr::mutate(
+      total = sum(count),
+      percentage = (count / total) * 100
+    ) %>%
+    dplyr::ungroup()
+  
+  # 绘制图形
+  p_overlay <- plot_celltype_density_overlay(df, density_data, sample_id, CONFIG)
+  p_composition <- plot_zone_composition(zone_composition, sample_id, CONFIG)
+  
+  # 保存图形
+  overlay_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_overlay.png", sample_id))
+  composition_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_composition.png", sample_id))
+  
+  ggsave(overlay_file, plot = p_overlay, width = 16, height = 12, dpi = 300, bg = "white")
+  ggsave(composition_file, plot = p_composition, width = 14, height = 10, dpi = 300, bg = "white")
+  
+  # 保存数据
+  zone_comp_file <- file.path(CONFIG$output$data_dir, sprintf("%s_zone_composition.csv", sample_id))
+  write.csv(zone_composition, zone_comp_file, row.names = FALSE)
+  
+  # 统计信息
+  n_spots <- nrow(df)
+  n_high_density <- sum(!is.na(df$density_zone))
+  n_celltypes <- length(setdiff(unique(df$celltype_clean), "Unknown"))
+  
+  cat(sprintf("  ✅ %d spots | %d high | %d celltypes\n", n_spots, n_high_density, n_celltypes))
+  
+  return(list(
+    density_data = density_data,
+    zone_composition = zone_composition,
+    plots = list(overlay = p_overlay, composition = p_composition),
+    stats = list(
+      n_spots = n_spots,
+      n_high_density = n_high_density,
+      n_celltypes = n_celltypes
     )
-    
-    results <- future.apply::future_lapply(
-      
-      names(sample_list),
-      
-      function(sample_id) {
-        
-        process_single_sample(
-          sample_id = sample_id,
-          sample_list = sample_list,
-          CONFIG = CONFIG,
-          celltype_col = celltype_col,
-          density_bins = density_bins,
-          plot_overlay = plot_overlay,
-          plot_composition = plot_composition,
-          progressor = p
-        )
-      },
-      
-      future.seed = TRUE,
-      future.chunk.size = 1
-    )
+  ))
+}
+
+
+# ===================================================================
+# 创建全局颜色方案
+# ===================================================================
+
+#' 创建全局统一颜色方案
+#'
+#' @param data_list 数据框列表
+#' @param celltype_col 细胞类型列名
+#' @param n_zones 密度区域数量
+#' @return 颜色方案列表
+#'
+create_global_color_scheme <- function(data_list, celltype_col, n_zones = 10) {
+  
+  cat("\n🎨 生成全局颜色方案...\n")
+  
+  # 收集所有细胞类型
+  all_celltypes <- lapply(data_list, function(df) {
+    ct <- df[[celltype_col]]
+    ct <- standardize_celltype_names(ct, mode = "underscore", title_case = TRUE)
+    ct <- ct[ct != "Unknown"]
+    return(unique(ct))
   })
   
-  end_time <- Sys.time()
-  elapsed <- difftime(end_time, start_time, units = "secs")
+  all_celltypes_unique <- sort(unique(unlist(all_celltypes)))
+  n_celltypes <- length(all_celltypes_unique)
   
-  # 关闭并行
-  future::plan(future::sequential)
+  cat(sprintf("  📊 发现 %d 个细胞类型（标准化后）\n", n_celltypes))
   
-  # ========================================
-  # 5. 统计样本处理结果
-  # ========================================
-  
-  print_sample_summary(results, sample_list, elapsed)
-  
-  # ========================================
-  # 6. 生成综合分析
-  # ========================================
-  
-  combined_data <- collect_combined_data(results)
-  
-  if (nrow(combined_data) > 0) {
-    generate_combined_analysis(
-      combined_data = combined_data,
-      CONFIG = CONFIG,
-      seurat_basename = seurat_basename,
-      plot_heatmap = plot_heatmap,
-      plot_combined = plot_combined
-    )
+  # 打印列表
+  if (n_celltypes <= 10) {
+    for (ct in all_celltypes_unique) {
+      cat(sprintf("     • %s\n", ct))
+    }
+  } else {
+    for (i in 1:10) {
+      cat(sprintf("     • %s\n", all_celltypes_unique[i]))
+    }
+    cat(sprintf("     ... 还有 %d 个\n", n_celltypes - 10))
   }
   
-  # ========================================
-  # 7. 最终总结
-  # ========================================
+  # 生成颜色
+  celltype_colors <- get_celltype_colors(all_celltypes_unique)
+  zone_colors <- get_zone_colors(n_zones)
+  names(zone_colors) <- sprintf("Zone_%d", 0:(n_zones - 1))
   
-  print_final_summary(results, sample_list, start_time, combined_data,
-                     plot_overlay, plot_composition, plot_heatmap, plot_combined,
-                     CONFIG)
+  cat(sprintf("  ✅ 颜色方案完成 (%d 细胞类型 + %d 区域)\n", n_celltypes, n_zones))
   
-  # ========================================
-  # 8. 返回结果
-  # ========================================
+  return(list(
+    celltype = celltype_colors,
+    density_zone = zone_colors
+  ))
+}
+
+
+# ===================================================================
+# 综合分析
+# ===================================================================
+
+#' 运行细胞类型分布综合分析
+#'
+#' @param data_list 数据框列表
+#' @param sample_ids 样本ID向量
+#' @param CONFIG 配置列表
+#' @return 综合分析结果
+#'
+run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
   
-  n_success <- sum(sapply(results, function(x) x$success))
-  n_failed <- length(results) - n_success
+  cat("\n")
+  cat("╔════════════════════════════════════════════════════════════╗\n")
+  cat("║  细胞类型在密度区域中的分布分析                          ║\n")
+  cat("╚════════════════════════════════════════════════════════════╝\n")
   
-  return(invisible(list(
-    success = n_success,
-    failed = n_failed,
-    total = length(sample_list),
-    elapsed_time = as.numeric(difftime(Sys.time(), start_time, units = "secs")),
+  # 创建全局颜色方案
+  CONFIG$colors <- create_global_color_scheme(
+    data_list = data_list,
+    celltype_col = CONFIG$params$celltype_col,
+    n_zones = CONFIG$params$n_zones
+  )
+  
+  # 处理每个样本
+  cat("\n🔬 处理样本...\n")
+  
+  results_list <- list()
+  
+  for (i in seq_along(data_list)) {
+    cat(sprintf("\n[%2d/%2d]", i, length(data_list)))
+    
+    result <- process_single_sample(
+      df = data_list[[i]],
+      sample_id = sample_ids[i],
+      CONFIG = CONFIG
+    )
+    
+    results_list[[sample_ids[i]]] <- result
+  }
+  
+  # 合并数据
+  cat("\n\n📊 合并数据...\n")
+  
+  combined_data <- do.call(rbind, lapply(names(results_list), function(sid) {
+    comp <- results_list[[sid]]$zone_composition
+    comp$sample <- sid
+    return(comp)
+  }))
+  
+  combined_file <- file.path(CONFIG$output$data_dir, "combined_zone_composition.csv")
+  write.csv(combined_data, combined_file, row.names = FALSE)
+  cat(sprintf("  ✅ %s\n", basename(combined_file)))
+  
+  # 绘制热图
+  cat("\n📊 生成热图...\n")
+  
+  p_heatmap <- plot_combined_heatmap(combined_data, CONFIG)
+  
+  heatmap_file <- file.path(CONFIG$output$plot_dir, "combined_heatmap.png")
+  ggsave(heatmap_file, plot = p_heatmap, width = 18, height = 14, dpi = 300, bg = "white")
+  cat(sprintf("  ✅ %s\n", basename(heatmap_file)))
+  
+  # 绘制综合分析图
+  cat("\n📊 生成综合分析图...\n")
+  
+  p_combined <- plot_combined_analysis(combined_data, CONFIG)
+  
+  combined_plot_file <- file.path(CONFIG$output$plot_dir, "combined_analysis.png")
+  ggsave(combined_plot_file, plot = p_combined, width = 20, height = 16, dpi = 300, bg = "white")
+  cat(sprintf("  ✅ %s\n", basename(combined_plot_file)))
+  
+  # 生成统计摘要
+  cat("\n📊 生成统计摘要...\n")
+  
+  summary_stats <- generate_summary_statistics(combined_data, CONFIG)
+  
+  summary_file <- file.path(CONFIG$output$data_dir, "summary_statistics.csv")
+  write.csv(summary_stats, summary_file, row.names = FALSE)
+  cat(sprintf("  ✅ %s\n", basename(summary_file)))
+  
+  # 完成
+  cat("\n")
+  cat("╔════════════════════════════════════════════════════════════╗\n")
+  cat("║  ✅ 分析完成！                                            ║\n")
+  cat("╚════════════════════════════════════════════════════════════╝\n")
+  cat("\n")
+  
+  return(list(
+    individual_results = results_list,
     combined_data = combined_data,
-    results = results
-  )))
+    summary_statistics = summary_stats,
+    combined_plots = list(
+      heatmap = p_heatmap,
+      analysis = p_combined
+    ),
+    config = CONFIG
+  ))
 }
 
 
-# ===================================================================
-# 辅助函数
-# ===================================================================
-
-if (!exists("%||%")) {
-  `%||%` <- function(a, b) if (is.null(a)) b else a
-}
-
-cat("✅ 08_plot_celltype.R 已加载\n")
+cat("✅ 08_plot_celltype.R 已加载\n\n")
 ```
 
 ---
@@ -2298,15 +2474,21 @@ cat("✅ 08_plot_celltype.R 已加载\n")
 
 ### 08_plot_celltype_utils/01_color_schemes.R
 
-- **大小**: 2.56 KB
-- **修改时间**: 2025-11-06 22:24:23
+- **大小**: 13.13 KB
+- **修改时间**: 2025-11-07 15:45:37
 
 ```r
 # ===================================================================
 # 01_color_schemes.R
-# 统一的颜色方案管理
+# 统一的颜色方案管理（全局配色版）
 # Author: Assistant
 # Date: 2025-11-06
+# ===================================================================
+
+library(RColorBrewer)
+
+# ===================================================================
+# 原有函数（保持不变）
 # ===================================================================
 
 #' 生成统一的zone颜色方案（支持任意数量的区域）
@@ -2402,6 +2584,347 @@ get_contour_colors <- function(n_breaks) {
     "#67001f"   # 深红 (高密度)
   ))(n_breaks)
 }
+
+
+# ===================================================================
+# 新增：全局统一配色功能
+# ===================================================================
+
+#' 生成全局统一的颜色方案（核心函数）
+#'
+#' @param sample_list 所有样本列表
+#' @param celltype_col 细胞类型列名
+#' @param density_bins 密度分区数量
+#' 
+#' @return 包含所有颜色映射的列表
+#'
+#' @details
+#' 这个函数会：
+#' 1. 遍历所有样本，收集所有独特的细胞类型
+#' 2. 为每个细胞类型分配固定颜色
+#' 3. 为密度区域生成渐变颜色
+#' 4. 返回统一的颜色方案供所有图表使用
+#'
+#' @examples
+#' color_scheme <- create_global_color_scheme(sample_list, "celltype", 10)
+#' CONFIG$colors <- color_scheme
+#'
+create_global_color_scheme <- function(sample_list, celltype_col, density_bins) {
+  
+  cat("\n🎨 生成全局统一颜色方案...\n")
+  
+  # ========================================
+  # 1. 收集所有细胞类型
+  # ========================================
+  
+  all_celltypes <- character(0)
+  
+  for (i in seq_along(sample_list)) {
+    
+    sample_id <- names(sample_list)[i]
+    seurat_obj <- sample_list[[sample_id]]
+    
+    # 自动检测细胞类型列
+    detected_col <- detect_celltype_column(seurat_obj, celltype_col)
+    
+    if (is.null(detected_col)) {
+      warning(sprintf("样本 %s 无法找到细胞类型列，跳过", sample_id))
+      next
+    }
+    
+    # 提取并清理细胞类型名称
+    celltypes <- seurat_obj@meta.data[[detected_col]]
+    celltypes_clean <- clean_celltype_names(celltypes)
+    
+    all_celltypes <- c(all_celltypes, celltypes_clean)
+  }
+  
+  # 去重并排序
+  unique_celltypes <- sort(unique(all_celltypes))
+  n_celltypes <- length(unique_celltypes)
+  
+  if (n_celltypes == 0) {
+    stop("❌ 未找到任何细胞类型")
+  }
+  
+  cat(sprintf("   📊 发现 %d 个独特细胞类型\n", n_celltypes))
+  
+  # ========================================
+  # 2. 生成细胞类型颜色映射
+  # ========================================
+  
+  celltype_colors <- get_celltype_colors(unique_celltypes)
+  
+  cat(sprintf("   ✅ 为 %d 个细胞类型分配了固定颜色\n", n_celltypes))
+  
+  # 打印颜色映射（前10个）
+  if (n_celltypes <= 10) {
+    cat("\n   细胞类型颜色映射:\n")
+    for (ct in unique_celltypes) {
+      cat(sprintf("      • %-25s → %s\n", ct, celltype_colors[ct]))
+    }
+  } else {
+    cat("\n   细胞类型颜色映射（前10个）:\n")
+    for (i in 1:10) {
+      ct <- unique_celltypes[i]
+      cat(sprintf("      • %-25s → %s\n", ct, celltype_colors[ct]))
+    }
+    cat(sprintf("      ... 还有 %d 个细胞类型\n", n_celltypes - 10))
+  }
+  
+  # ========================================
+  # 3. 生成密度区域颜色映射
+  # ========================================
+  
+  zone_colors <- get_zone_colors(density_bins)
+  
+  cat(sprintf("\n   ✅ 为 %d 个密度区域分配了渐变颜色\n", density_bins))
+  cat(sprintf("      Zone_0 (核心) → %s (深红)\n", zone_colors["Zone_0"]))
+  cat(sprintf("      Zone_%d (外围) → %s (深蓝)\n", 
+              density_bins - 1, zone_colors[sprintf("Zone_%d", density_bins - 1)]))
+  
+  # ========================================
+  # 4. 返回颜色配置
+  # ========================================
+  
+  color_scheme <- list(
+    celltype = celltype_colors,
+    density_zone = zone_colors,
+    n_celltypes = n_celltypes,
+    n_zones = density_bins,
+    celltype_names = unique_celltypes,
+    zone_names = names(zone_colors),
+    celltype_col = celltype_col
+  )
+  
+  cat("   ✅ 全局颜色方案已创建\n\n")
+  
+  return(color_scheme)
+}
+
+
+#' 自动检测细胞类型列
+#'
+#' @param seurat_obj Seurat 对象
+#' @param preferred_col 首选列名
+#' 
+#' @return 检测到的列名或 NULL
+#'
+#' @details
+#' 按以下顺序尝试：
+#' 1. 首选列名（如 "celltype"）
+#' 2. 常见的细胞类型列名
+#' 3. 包含关键词的列（模糊匹配）
+#'
+detect_celltype_column <- function(seurat_obj, preferred_col = "celltype") {
+  
+  meta_cols <- colnames(seurat_obj@meta.data)
+  
+  # 1. 如果首选列存在，直接使用
+  if (preferred_col %in% meta_cols) {
+    return(preferred_col)
+  }
+  
+  # 2. 尝试常见的细胞类型列名（按优先级排序）
+  candidate_cols <- c(
+    "celltype", "cell_type", "CellType",
+    "predicted.id", "predicted.celltype",
+    "annotation", "Annotation",
+    "celltype.l1", "celltype.l2",
+    "cluster", "seurat_clusters"
+  )
+  
+  for (col in candidate_cols) {
+    if (col %in% meta_cols) {
+      return(col)
+    }
+  }
+  
+  # 3. 模糊匹配（包含关键词）
+  pattern_matches <- grep("type|cluster|annotation|label|class", 
+                          meta_cols, ignore.case = TRUE, value = TRUE)
+  
+  if (length(pattern_matches) > 0) {
+    return(pattern_matches[1])
+  }
+  
+  # 4. 未找到
+  return(NULL)
+}
+
+
+#' 清理细胞类型名称
+#'
+#' @param celltypes 原始细胞类型向量
+#' 
+#' @return 清理后的细胞类型向量
+#'
+#' @details
+#' - 移除特殊字符，替换为下划线
+#' - 移除多余的下划线
+#' - 移除首尾下划线
+#'
+clean_celltype_names <- function(celltypes) {
+  
+  celltypes_clean <- gsub("[^[:alnum:]_]", "_", celltypes)
+  celltypes_clean <- gsub("_{2,}", "_", celltypes_clean)
+  celltypes_clean <- gsub("^_|_$", "", celltypes_clean)
+  
+  return(celltypes_clean)
+}
+
+
+#' 从颜色方案中获取细胞类型颜色
+#'
+#' @param celltype 细胞类型名称（可以是向量）
+#' @param color_scheme 全局颜色方案（来自 CONFIG$colors）
+#' 
+#' @return 颜色值（向量）
+#'
+#' @examples
+#' color <- get_color_for_celltype("T_cells", CONFIG$colors)
+#' colors <- get_color_for_celltype(c("T_cells", "B_cells"), CONFIG$colors)
+#'
+get_color_for_celltype <- function(celltype, color_scheme) {
+  
+  sapply(celltype, function(ct) {
+    if (ct %in% names(color_scheme$celltype)) {
+      return(color_scheme$celltype[ct])
+    } else {
+      warning(sprintf("细胞类型 '%s' 未找到，使用灰色", ct))
+      return("#CCCCCC")
+    }
+  }, USE.NAMES = FALSE)
+}
+
+
+#' 从颜色方案中获取区域颜色
+#'
+#' @param zone 区域名称（可以是向量）
+#' @param color_scheme 全局颜色方案（来自 CONFIG$colors）
+#' 
+#' @return 颜色值（向量）
+#'
+#' @examples
+#' color <- get_color_for_zone("Zone_0", CONFIG$colors)
+#' colors <- get_color_for_zone(c("Zone_0", "Zone_1"), CONFIG$colors)
+#'
+get_color_for_zone <- function(zone, color_scheme) {
+  
+  sapply(zone, function(z) {
+    if (z %in% names(color_scheme$density_zone)) {
+      return(color_scheme$density_zone[z])
+    } else {
+      warning(sprintf("区域 '%s' 未找到，使用灰色", z))
+      return("#CCCCCC")
+    }
+  }, USE.NAMES = FALSE)
+}
+
+
+#' 向后兼容函数：setup_colors
+#'
+#' @param seurat_obj 单个 Seurat 对象（已弃用）
+#' @param CONFIG 配置对象
+#' @param celltype_col 细胞类型列名（已弃用）
+#' @param density_bins 密度分区数量（已弃用）
+#' 
+#' @return 无返回值
+#'
+#' @details
+#' 这个函数保持向后兼容，但实际上不再做任何事情。
+#' 请在分析前使用 create_global_color_scheme() 生成全局颜色方案。
+#'
+setup_colors <- function(seurat_obj, CONFIG, celltype_col, density_bins) {
+  
+  # 如果 CONFIG 中已经有全局颜色方案，直接返回
+  if (!is.null(CONFIG$colors$celltype) && !is.null(CONFIG$colors$density_zone)) {
+    # 静默返回（颜色已设置）
+    return(invisible(NULL))
+  }
+  
+  # 否则警告
+  warning("⚠️  setup_colors() 已弃用。", 
+          "请在 analyze_celltype_niche() 开始时自动调用 create_global_color_scheme()")
+  
+  return(invisible(NULL))
+}
+
+
+# ===================================================================
+# 工具函数：验证颜色方案
+# ===================================================================
+
+#' 验证颜色方案完整性
+#'
+#' @param color_scheme 颜色方案对象
+#' 
+#' @return 逻辑值，TRUE 表示有效
+#'
+validate_color_scheme <- function(color_scheme) {
+  
+  required_fields <- c("celltype", "density_zone", "n_celltypes", "n_zones")
+  
+  missing_fields <- setdiff(required_fields, names(color_scheme))
+  
+  if (length(missing_fields) > 0) {
+    warning(sprintf("颜色方案缺少字段: %s", paste(missing_fields, collapse = ", ")))
+    return(FALSE)
+  }
+  
+  if (length(color_scheme$celltype) != color_scheme$n_celltypes) {
+    warning("细胞类型颜色数量与 n_celltypes 不匹配")
+    return(FALSE)
+  }
+  
+  if (length(color_scheme$density_zone) != color_scheme$n_zones) {
+    warning("区域颜色数量与 n_zones 不匹配")
+    return(FALSE)
+  }
+  
+  return(TRUE)
+}
+
+
+#' 打印颜色方案摘要
+#'
+#' @param color_scheme 颜色方案对象
+#' 
+#' @return 无返回值
+#'
+print_color_scheme <- function(color_scheme) {
+  
+  cat("\n═══════════════════════════════════════════════════════════\n")
+  cat("   颜色方案摘要\n")
+  cat("═══════════════════════════════════════════════════════════\n\n")
+  
+  cat(sprintf("细胞类型数量: %d\n", color_scheme$n_celltypes))
+  cat(sprintf("密度区域数量: %d\n", color_scheme$n_zones))
+  
+  if (color_scheme$n_celltypes <= 15) {
+    cat("\n细胞类型颜色:\n")
+    for (ct in names(color_scheme$celltype)) {
+      cat(sprintf("  %-30s %s\n", ct, color_scheme$celltype[ct]))
+    }
+  } else {
+    cat("\n细胞类型颜色（前15个）:\n")
+    for (i in 1:15) {
+      ct <- names(color_scheme$celltype)[i]
+      cat(sprintf("  %-30s %s\n", ct, color_scheme$celltype[ct]))
+    }
+    cat(sprintf("  ... 还有 %d 个\n", color_scheme$n_celltypes - 15))
+  }
+  
+  cat("\n密度区域颜色:\n")
+  for (zn in names(color_scheme$density_zone)) {
+    cat(sprintf("  %-10s %s\n", zn, color_scheme$density_zone[zn]))
+  }
+  
+  cat("\n═══════════════════════════════════════════════════════════\n\n")
+}
+
+
+cat("✅ 01_color_schemes.R 已加载（全局配色版）\n")
 ```
 
 ---
@@ -2601,28 +3124,26 @@ calculate_density_zones <- function(df, density_bins = 10, expand_margin = 0.1) 
 
 ### 08_plot_celltype_utils/03_plot_overlay.R
 
-- **大小**: 10.01 KB
-- **修改时间**: 2025-11-07 11:24:05
+- **大小**: 12.09 KB
+- **修改时间**: 2025-11-07 15:49:28
 
 ```r
 # ===================================================================
-# 03_plot_overlay.R (修复版)
+# 03_plot_overlay.R (全局统一配色版)
 # 细胞类型+密度叠加图（使用raster，无网格线）
-# Author: Assistant (Fixed Version)
+# Author: Assistant (Global Color Scheme)
 # Date: 2025-11-07
 # ===================================================================
 
-#' 绘制细胞类型和密度区域叠加图
+#' 绘制细胞类型和密度区域叠加图（全局统一配色版）
 #'
 #' @param df 数据框，包含细胞类型和坐标信息
 #' @param density_data 密度计算结果（来自 calculate_density_zones）
 #' @param sample_id 样本ID
-#' @param CONFIG 配置列表
+#' @param CONFIG 配置列表（必须包含 CONFIG$colors）
 #'
 #' @return ggplot对象
 #'
-
-
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   require(ggplot2)
@@ -2631,39 +3152,70 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   require(RANN)
   
   # ========================================
-  # 1. 准备数据
+  # 1. 验证全局颜色方案
   # ========================================
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$celltype)) {
+    stop("❌ 全局颜色方案未初始化，请先调用 create_global_color_scheme()")
+  }
+  
+  if (is.null(CONFIG$colors$density_zone)) {
+    stop("❌ 密度区域颜色未初始化")
+  }
+  
+  # ========================================
+  # 2. 准备数据
+  # ========================================
+  
+  # 获取全局颜色方案
+  celltype_colors_global <- CONFIG$colors$celltype
+  zone_colors_global <- CONFIG$colors$density_zone
   
   n_zones <- length(unique(density_data$grid$density_zone))
   zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
-  zone_colors <- CONFIG$colors$zone_colors %||% get_zone_colors(n_zones)
   
   # 清理 celltype
   df$celltype_clean <- as.character(df$celltype_clean)
   df$celltype_clean[is.na(df$celltype_clean) | df$celltype_clean == ""] <- "Unknown"
-  all_celltypes <- sort(unique(df$celltype_clean))
   
-  # 获取配置的颜色
-  celltype_colors <- CONFIG$colors$celltype_colors
+  # ✅ 获取当前样本的细胞类型（可能是全局的子集）
+  sample_celltypes <- sort(unique(df$celltype_clean))
   
-  # 确保所有类型都有颜色
-  missing_types <- setdiff(all_celltypes, names(celltype_colors))
+  # ✅ 检查是否有未知细胞类型
+  missing_types <- setdiff(sample_celltypes, names(celltype_colors_global))
   if (length(missing_types) > 0) {
-    extra_colors <- rainbow(length(missing_types))
+    warning(sprintf("样本 %s 包含未在全局颜色方案中的细胞类型: %s",
+                   sample_id, paste(missing_types, collapse = ", ")))
+    # 为缺失类型分配灰色
+    extra_colors <- rep("#CCCCCC", length(missing_types))
     names(extra_colors) <- missing_types
-    celltype_colors <- c(celltype_colors, extra_colors)
+    celltype_colors_global <- c(celltype_colors_global, extra_colors)
   }
   
-  # 只保留实际存在的类型，并确保顺序一致
-  celltype_colors <- celltype_colors[all_celltypes]
+  # ✅ 使用全局颜色（保留所有细胞类型，即使当前样本没有）
+  celltype_colors <- celltype_colors_global
+  all_celltypes <- names(celltype_colors)  # 全局所有细胞类型
   
-  cat("   📊 Celltype 颜色映射:\n")
-  for (ct in all_celltypes) {
-    cat(sprintf("      %s → %s\n", ct, celltype_colors[ct]))
+  cat(sprintf("   📊 当前样本细胞类型: %d 个 (全局: %d 个)\n", 
+              length(sample_celltypes), length(all_celltypes)))
+  
+  # 只打印当前样本的颜色映射
+  if (length(sample_celltypes) <= 10) {
+    cat("   📊 当前样本细胞类型颜色:\n")
+    for (ct in sample_celltypes) {
+      cat(sprintf("      • %-25s → %s\n", ct, celltype_colors[ct]))
+    }
+  } else {
+    cat("   📊 当前样本细胞类型颜色（前10个）:\n")
+    for (i in 1:min(10, length(sample_celltypes))) {
+      ct <- sample_celltypes[i]
+      cat(sprintf("      • %-25s → %s\n", ct, celltype_colors[ct]))
+    }
+    cat(sprintf("      ... 还有 %d 个细胞类型\n", length(sample_celltypes) - 10))
   }
   
   # ========================================
-  # 2. 坐标范围
+  # 3. 坐标范围
   # ========================================
   
   col_range_raw <- density_data$col_range
@@ -2684,7 +3236,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
               col_limits[1], col_limits[2], row_limits[1], row_limits[2]))
   
   # ========================================
-  # 3. 准备等高线数据
+  # 4. 准备等高线数据
   # ========================================
   
   zone_density_ranges <- density_data$grid %>%
@@ -2707,13 +3259,14 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     mutate(density_zone = factor(density_zone, levels = zone_levels))
   
   # ========================================
-  # 4. 准备细胞数据
+  # 5. 准备细胞数据
   # ========================================
   
   df_filtered <- df %>% 
     filter(!is.na(density_zone)) %>%
     mutate(
       density_zone = factor(density_zone, levels = zone_levels),
+      # ✅ 使用全局所有细胞类型作为 factor levels
       celltype_clean = factor(celltype_clean, levels = all_celltypes)
     )
   
@@ -2741,7 +3294,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   legend_title_size <- 11
   
   # ========================================
-  # 5. 绘图
+  # 6. 绘图
   # ========================================
   
   p <- ggplot() +
@@ -2750,23 +3303,23 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     # ========================================
     geom_tile(
       data = df_filtered,
-      aes(x = col, y = row, fill = celltype_clean),  # ✅ 使用 fill
+      aes(x = col, y = row, fill = celltype_clean),
       width = square_size,
       height = square_size,
-      color = NA,  # ✅ 不要边框
+      color = NA,
       alpha = 1
     ) +
     scale_fill_manual(
-      values = celltype_colors,  # ✅ 必须是命名向量
+      values = celltype_colors,  # ✅ 使用全局颜色
       name = "Cell Type",
-      breaks = all_celltypes,
-      drop = TRUE,
+      breaks = all_celltypes,  # ✅ 显示所有细胞类型
+      drop = FALSE,  # ✅ 不丢弃未使用的级别
       na.value = "gray50",
       guide = guide_legend(
         order = 2,
         override.aes = list(
           alpha = 1,
-          color = NA  # ✅ 图例中也不要边框
+          color = NA
         ),
         title.position = "top",
         title.hjust = 0,
@@ -2790,9 +3343,9 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       interpolate = TRUE
     ) +
     scale_fill_manual(
-      values = zone_colors,
+      values = zone_colors_global,  # ✅ 使用全局区域颜色
       labels = zone_labels,
-      name = "Density Zones\n(Zone_0 = Core Red → Zone_9 = Outer Blue)",
+      name = "Density Zones\n(Zone_0 = Core Red → Zone_N = Outer Blue)",
       breaks = zone_levels,
       na.value = "transparent",
       drop = FALSE,
@@ -2870,11 +3423,32 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
 }
 
 # ========================================
-# 辅助函数
+# 辅助函数（向后兼容）
 # ========================================
 
-#' 生成 zone 颜色（红到蓝渐变）
+#' 生成等高线颜色（紫色渐变）
+#' 
+#' @param n_contours 等高线数量
+#' @return 颜色向量
+#'
+get_contour_colors <- function(n_contours) {
+  colorRampPalette(c(
+    "#542788",  # 深紫
+    "#8073AC",  # 中紫
+    "#B2ABD2",  # 浅紫
+    "#D8DAEB"   # 淡紫
+  ))(n_contours)
+}
+
+
+# ========================================
+# ⚠️ 以下函数已弃用，请使用 01_color_schemes.R 中的函数
+# ========================================
+
+#' @deprecated 请使用 get_zone_colors() from 01_color_schemes.R
 get_zone_colors <- function(n_zones) {
+  warning("get_zone_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
   colorRampPalette(c(
     "#B2182B",  # 深红（核心高密度）
     "#EF8A62",  # 浅红
@@ -2886,18 +3460,10 @@ get_zone_colors <- function(n_zones) {
   ))(n_zones)
 }
 
-#' 生成等高线颜色（紫色渐变）
-get_contour_colors <- function(n_contours) {
-  colorRampPalette(c(
-    "#542788",  # 深紫
-    "#8073AC",  # 中紫
-    "#B2ABD2",  # 浅紫
-    "#D8DAEB"   # 淡紫
-  ))(n_contours)
-}
-
-#' 为细胞类型生成颜色
+#' @deprecated 请使用 get_celltype_colors() from 01_color_schemes.R
 get_celltype_colors <- function(celltypes) {
+  warning("get_celltype_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
   require(RColorBrewer)
   n <- length(celltypes)
   
@@ -2913,28 +3479,29 @@ get_celltype_colors <- function(celltypes) {
   return(colors)
 }
 
+cat("✅ 03_plot_overlay.R 已加载（全局统一配色版）\n")
 ```
 
 ---
 
 ### 08_plot_celltype_utils/04_plot_composition.R
 
-- **大小**: 3.01 KB
-- **修改时间**: 2025-11-06 22:25:19
+- **大小**: 7.04 KB
+- **修改时间**: 2025-11-07 15:51:02
 
 ```r
 # ===================================================================
-# 04_plot_composition.R
+# 04_plot_composition.R (全局统一配色版)
 # 区域组成柱状图绘制
 # Author: Assistant
-# Date: 2025-11-06
+# Date: 2025-11-07
 # ===================================================================
 
-#' 绘制zone组成柱状图
+#' 绘制zone组成柱状图（全局统一配色版）
 #'
 #' @param zone_composition zone组成数据框
 #' @param sample_id 样本ID
-#' @param CONFIG 配置列表
+#' @param CONFIG 配置列表（必须包含 CONFIG$colors）
 #'
 #' @return patchwork组合图（细胞类型组成 + spot数量）
 #'
@@ -2947,45 +3514,106 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
   require(patchwork)
   require(dplyr)
   
-  # 使用统一的颜色方案
-  n_zones <- length(unique(zone_composition$density_zone))
-  zone_colors <- get_zone_colors(n_zones)
-  celltype_colors <- get_celltype_colors(unique(zone_composition$celltype_clean))
+  # ========================================
+  # 1. 验证全局颜色方案
+  # ========================================
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$celltype)) {
+    stop("❌ 全局颜色方案未初始化，请先调用 create_global_color_scheme()")
+  }
+  
+  if (is.null(CONFIG$colors$density_zone)) {
+    stop("❌ 密度区域颜色未初始化")
+  }
+  
+  # ========================================
+  # 2. 获取全局颜色方案
+  # ========================================
+  
+  # ✅ 使用全局颜色（所有样本一致）
+  celltype_colors_global <- CONFIG$colors$celltype
+  zone_colors_global <- CONFIG$colors$density_zone
+  
+  # 全局所有细胞类型
+  all_celltypes <- names(celltype_colors_global)
+  
+  # 当前样本的细胞类型
+  sample_celltypes <- unique(zone_composition$celltype_clean)
+  
+  # 检查未知类型
+  missing_types <- setdiff(sample_celltypes, all_celltypes)
+  if (length(missing_types) > 0) {
+    warning(sprintf("样本 %s 包含未知细胞类型: %s", 
+                   sample_id, paste(missing_types, collapse = ", ")))
+  }
+  
+  # ========================================
+  # 3. 准备数据
+  # ========================================
   
   # 确保zone按 Zone_0, Zone_1, ... 排序
+  n_zones <- length(unique(zone_composition$density_zone))
   zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
-  zone_composition <- zone_composition %>%
-    dplyr::mutate(density_zone = factor(density_zone, levels = zone_levels))
   
-  # 图1：细胞类型组成堆叠柱状图
+  zone_composition <- zone_composition %>%
+    dplyr::mutate(
+      density_zone = factor(density_zone, levels = zone_levels),
+      # ✅ 使用全局所有细胞类型作为 factor levels
+      celltype_clean = factor(celltype_clean, levels = all_celltypes)
+    )
+  
+  cat(sprintf("   📊 绘制组成图: %d zones, %d celltypes (全局: %d)\n",
+              n_zones, length(sample_celltypes), length(all_celltypes)))
+  
+  # ========================================
+  # 4. 图1：细胞类型组成堆叠柱状图
+  # ========================================
+  
   p1 <- ggplot(zone_composition, aes(x = density_zone, y = percentage, fill = celltype_clean)) +
     geom_bar(stat = "identity", position = "stack", color = "white", linewidth = 0.3) +
-    scale_fill_manual(values = celltype_colors, name = "Cell Type") +
+    scale_fill_manual(
+      values = celltype_colors_global,  # ✅ 使用全局颜色
+      name = "Cell Type",
+      breaks = all_celltypes,  # ✅ 显示所有细胞类型
+      drop = FALSE  # ✅ 不丢弃未使用的级别
+    ) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
     labs(
       title = sprintf("Cell Type Composition by Density Zone - %s", sample_id),
+      subtitle = sprintf("%d cell types (global colors applied)", length(all_celltypes)),
       x = "Density Zone (Zone_0=Core/High → Higher=Outer/Low)",
       y = "Percentage (%)"
     ) +
     theme_classic() +
     theme(
-      plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold", margin = margin(b = 5)),
+      plot.subtitle = element_text(hjust = 0.5, size = 9, color = "gray30", margin = margin(b = 10)),
       axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
       axis.text.y = element_text(size = 10),
+      axis.title = element_text(size = 11, face = "bold"),
       legend.position = "right",
       legend.title = element_text(size = 11, face = "bold"),
-      legend.text = element_text(size = 9)
+      legend.text = element_text(size = 9),
+      legend.key.size = unit(0.8, "cm"),
+      panel.grid.major.y = element_line(color = "gray90", linewidth = 0.3)
     )
   
-  # 图2：Zone的spot数量
+  # ========================================
+  # 5. 图2：Zone的spot数量
+  # ========================================
+  
   zone_totals <- zone_composition %>%
     dplyr::group_by(density_zone) %>%
-    dplyr::summarise(total = sum(count), .groups = "drop")
+    dplyr::summarise(total = sum(count), .groups = "drop") %>%
+    dplyr::mutate(density_zone = factor(density_zone, levels = zone_levels))
   
   p2 <- ggplot(zone_totals, aes(x = density_zone, y = total, fill = density_zone)) +
     geom_bar(stat = "identity", color = "white", linewidth = 0.5) +
     geom_text(aes(label = total), vjust = -0.5, size = 3.5, fontface = "bold") +
-    scale_fill_manual(values = zone_colors, guide = "none") +
+    scale_fill_manual(
+      values = zone_colors_global,  # ✅ 使用全局区域颜色
+      guide = "none"
+    ) +
     scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
     labs(
       title = "Total Spots per Density Zone",
@@ -2996,35 +3624,87 @@ plot_zone_composition <- function(zone_composition, sample_id, CONFIG) {
     theme(
       plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
       axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
-      axis.text.y = element_text(size = 10)
+      axis.text.y = element_text(size = 10),
+      axis.title = element_text(size = 10, face = "bold"),
+      panel.grid.major.y = element_line(color = "gray90", linewidth = 0.3)
     )
   
-  # 合并
-  p_combined <- p1 / p2 + plot_layout(heights = c(2, 1))
+  # ========================================
+  # 6. 合并两个图
+  # ========================================
+  
+  p_combined <- p1 / p2 + 
+    plot_layout(heights = c(2, 1)) +
+    plot_annotation(
+      caption = sprintf("Global color scheme applied across all samples | Sample: %s", sample_id),
+      theme = theme(
+        plot.caption = element_text(size = 8, color = "gray40", hjust = 1, margin = margin(t = 10))
+      )
+    )
   
   return(p_combined)
 }
+
+
+# ========================================
+# 向后兼容函数（已弃用）
+# ========================================
+
+#' @deprecated 请使用 get_zone_colors() from 01_color_schemes.R
+get_zone_colors <- function(n_zones) {
+  warning("get_zone_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
+  colorRampPalette(c(
+    "#67001f", "#b2182b", "#d6604d", "#f4a582", "#fddbc7",
+    "#d1e5f0", "#92c5de", "#4393c3", "#2166ac", "#053061"
+  ))(n_zones)
+}
+
+#' @deprecated 请使用 get_celltype_colors() from 01_color_schemes.R
+get_celltype_colors <- function(celltypes) {
+  warning("get_celltype_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
+  require(RColorBrewer)
+  n <- length(celltypes)
+  
+  if (n <= 8) {
+    colors <- RColorBrewer::brewer.pal(max(3, n), "Set2")
+  } else if (n <= 12) {
+    colors <- RColorBrewer::brewer.pal(n, "Set3")
+  } else {
+    colors <- c(
+      RColorBrewer::brewer.pal(9, "Set1"),
+      RColorBrewer::brewer.pal(8, "Set2"),
+      RColorBrewer::brewer.pal(12, "Set3")
+    )[1:n]
+  }
+  
+  names(colors) <- celltypes
+  return(colors)
+}
+
+cat("✅ 04_plot_composition.R 已加载（全局统一配色版）\n")
 ```
 
 ---
 
 ### 08_plot_celltype_utils/05_plot_heatmap.R
 
-- **大小**: 3.32 KB
-- **修改时间**: 2025-11-06 22:25:31
+- **大小**: 7.72 KB
+- **修改时间**: 2025-11-07 15:52:16
 
 ```r
 # ===================================================================
-# 05_plot_heatmap.R
+# 05_plot_heatmap.R (全局统一配色版)
 # 合并热图绘制
 # Author: Assistant
-# Date: 2025-11-06
+# Date: 2025-11-07
 # ===================================================================
 
-#' 绘制合并热图（所有样本）
+#' 绘制合并热图（所有样本）- 全局统一配色版
 #'
 #' @param combined_data 合并的zone组成数据
-#' @param CONFIG 配置列表
+#' @param CONFIG 配置列表（必须包含 CONFIG$colors）
 #'
 #' @return patchwork组合图（zone颜色条 + 热图）
 #'
@@ -3037,28 +3717,81 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
   require(patchwork)
   require(dplyr)
   
-  # 计算平均百分比
+  # ========================================
+  # 1. 验证全局颜色方案
+  # ========================================
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$celltype)) {
+    stop("❌ 全局颜色方案未初始化，请先调用 create_global_color_scheme()")
+  }
+  
+  if (is.null(CONFIG$colors$density_zone)) {
+    stop("❌ 密度区域颜色未初始化")
+  }
+  
+  # ========================================
+  # 2. 获取全局颜色方案
+  # ========================================
+  
+  # ✅ 使用全局颜色
+  celltype_colors_global <- CONFIG$colors$celltype
+  zone_colors_global <- CONFIG$colors$density_zone
+  
+  # 全局所有细胞类型（保持顺序）
+  all_celltypes <- names(celltype_colors_global)
+  
+  # 确保zone按顺序排列
+  n_zones <- length(unique(combined_data$density_zone))
+  zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
+  
+  cat(sprintf("\n📊 绘制跨样本热图...\n"))
+  cat(sprintf("   样本数: %d\n", length(unique(combined_data$sample))))
+  cat(sprintf("   细胞类型: %d (全局)\n", length(all_celltypes)))
+  cat(sprintf("   密度区域: %d\n", n_zones))
+  
+  # ========================================
+  # 3. 计算平均百分比
+  # ========================================
+  
   heatmap_data <- combined_data %>%
     dplyr::group_by(density_zone, celltype_clean) %>%
     dplyr::summarise(
-      mean_pct = mean(percentage),
-      sd_pct = sd(percentage),
+      mean_pct = mean(percentage, na.rm = TRUE),
+      sd_pct = sd(percentage, na.rm = TRUE),
       n_samples = n(),
       .groups = "drop"
     )
   
-  # 确保zone按顺序排列
-  n_zones <- length(unique(heatmap_data$density_zone))
-  zone_colors <- get_zone_colors(n_zones)
-  zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
+  # ✅ 补全缺失的细胞类型（某些类型可能在所有样本中都不存在某些区域）
+  complete_grid <- expand.grid(
+    density_zone = zone_levels,
+    celltype_clean = all_celltypes,
+    stringsAsFactors = FALSE
+  )
   
-  heatmap_data <- heatmap_data %>%
-    dplyr::mutate(density_zone = factor(density_zone, levels = zone_levels))
+  heatmap_data <- complete_grid %>%
+    dplyr::left_join(heatmap_data, by = c("density_zone", "celltype_clean")) %>%
+    dplyr::mutate(
+      mean_pct = ifelse(is.na(mean_pct), 0, mean_pct),
+      sd_pct = ifelse(is.na(sd_pct), 0, sd_pct),
+      n_samples = ifelse(is.na(n_samples), 0, n_samples),
+      # ✅ 使用全局顺序
+      density_zone = factor(density_zone, levels = zone_levels),
+      celltype_clean = factor(celltype_clean, levels = all_celltypes)
+    )
   
-  # 热图主体
+  # ========================================
+  # 4. 热图主体
+  # ========================================
+  
   p <- ggplot(heatmap_data, aes(x = density_zone, y = celltype_clean, fill = mean_pct)) +
     geom_tile(color = "white", linewidth = 0.8) +
-    geom_text(aes(label = sprintf("%.1f", mean_pct)), size = 3.5, color = "black", fontface = "bold") +
+    geom_text(
+      aes(label = ifelse(mean_pct > 0.5, sprintf("%.1f", mean_pct), "")),  # 只显示 >0.5% 的值
+      size = 3.5, 
+      color = "black", 
+      fontface = "bold"
+    ) +
     scale_fill_gradientn(
       colors = c("white", "#fee090", "#fc8d59", "#d73027"),
       name = "Mean %",
@@ -3070,9 +3803,16 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
         title.hjust = 0.5
       )
     ) +
+    # ✅ Y轴使用全局细胞类型顺序
+    scale_y_discrete(
+      breaks = all_celltypes,
+      drop = FALSE  # ✅ 显示所有细胞类型
+    ) +
     labs(
       title = "Cell Type Composition Across Density Zones (All Samples)",
-      subtitle = sprintf("Averaged across %d samples", length(unique(combined_data$sample))),
+      subtitle = sprintf("Averaged across %d samples | %d cell types (global)", 
+                        length(unique(combined_data$sample)), 
+                        length(all_celltypes)),
       x = "Density Zone (Zone_0=Core/High → Higher=Outer/Low)",
       y = "Cell Type"
     ) +
@@ -3087,10 +3827,14 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
       legend.title = element_text(size = 11, face = "bold"),
       legend.text = element_text(size = 9),
       panel.grid = element_blank(),
-      panel.border = element_rect(color = "gray70", fill = NA, linewidth = 1)
+      panel.border = element_rect(color = "gray70", fill = NA, linewidth = 1),
+      plot.margin = margin(15, 15, 15, 15)
     )
   
-  # 添加zone颜色参考条（顶部）
+  # ========================================
+  # 5. Zone颜色参考条（顶部）
+  # ========================================
+  
   zone_bar_data <- data.frame(
     density_zone = factor(zone_levels, levels = zone_levels),
     y_position = 1
@@ -3098,7 +3842,10 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
   
   p_zone_bar <- ggplot(zone_bar_data, aes(x = density_zone, y = y_position, fill = density_zone)) +
     geom_tile(color = "white", linewidth = 1) +
-    scale_fill_manual(values = zone_colors, guide = "none") +
+    scale_fill_manual(
+      values = zone_colors_global,  # ✅ 使用全局区域颜色
+      guide = "none"
+    ) +
     scale_y_continuous(expand = c(0, 0)) +
     theme_void() +
     theme(
@@ -3106,32 +3853,95 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
       plot.margin = margin(0, 0, 0, 0)
     )
   
-  # 合并图形
-  p_final <- p_zone_bar / p + plot_layout(heights = c(0.05, 1))
+  # ========================================
+  # 6. 细胞类型颜色参考条（左侧）
+  # ========================================
+  
+  celltype_bar_data <- data.frame(
+    celltype_clean = factor(all_celltypes, levels = all_celltypes),
+    x_position = 1
+  )
+  
+  p_celltype_bar <- ggplot(celltype_bar_data, aes(x = x_position, y = celltype_clean, fill = celltype_clean)) +
+    geom_tile(color = "white", linewidth = 0.8) +
+    scale_fill_manual(
+      values = celltype_colors_global,  # ✅ 使用全局细胞类型颜色
+      guide = "none"
+    ) +
+    scale_x_continuous(expand = c(0, 0)) +
+    scale_y_discrete(
+      breaks = all_celltypes,
+      drop = FALSE
+    ) +
+    theme_void() +
+    theme(
+      axis.text.y = element_blank(),
+      plot.margin = margin(0, 0, 0, 0)
+    )
+  
+  # ========================================
+  # 7. 合并图形（添加细胞类型颜色条）
+  # ========================================
+  
+  # 空白占位符（左上角）
+  p_blank <- ggplot() + theme_void()
+  
+  # 使用 patchwork 布局
+  p_final <- (p_blank | p_zone_bar) / 
+             (p_celltype_bar | p) + 
+    plot_layout(
+      widths = c(0.03, 1),   # 左侧颜色条宽度
+      heights = c(0.05, 1)   # 顶部颜色条高度
+    ) +
+    plot_annotation(
+      caption = "Colors are consistent across all samples (global color scheme)",
+      theme = theme(
+        plot.caption = element_text(size = 9, color = "gray40", hjust = 1, margin = margin(t = 10))
+      )
+    )
+  
+  cat("   ✅ 热图绘制完成\n")
   
   return(p_final)
 }
+
+
+# ========================================
+# 向后兼容函数（已弃用）
+# ========================================
+
+#' @deprecated 请使用 get_zone_colors() from 01_color_schemes.R
+get_zone_colors <- function(n_zones) {
+  warning("get_zone_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
+  colorRampPalette(c(
+    "#67001f", "#b2182b", "#d6604d", "#f4a582", "#fddbc7",
+    "#d1e5f0", "#92c5de", "#4393c3", "#2166ac", "#053061"
+  ))(n_zones)
+}
+
+cat("✅ 05_plot_heatmap.R 已加载（全局统一配色版）\n")
 ```
 
 ---
 
 ### 08_plot_celltype_utils/06_plot_combined.R
 
-- **大小**: 4.39 KB
-- **修改时间**: 2025-11-06 22:25:45
+- **大小**: 9.14 KB
+- **修改时间**: 2025-11-07 15:53:45
 
 ```r
 # ===================================================================
-# 06_plot_combined.R
+# 06_plot_combined.R (全局统一配色版)
 # 综合分析图绘制
 # Author: Assistant
-# Date: 2025-11-06
+# Date: 2025-11-07
 # ===================================================================
 
-#' 绘制综合分析图（箱线图 + 趋势图）
+#' 绘制综合分析图（箱线图 + 趋势图）- 全局统一配色版
 #'
 #' @param combined_data 合并的zone组成数据
-#' @param CONFIG 配置列表
+#' @param CONFIG 配置列表（必须包含 CONFIG$colors）
 #'
 #' @return patchwork组合图
 #'
@@ -3144,61 +3954,142 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
   require(patchwork)
   require(dplyr)
   
-  # 获取统一的颜色方案
+  # ========================================
+  # 1. 验证全局颜色方案
+  # ========================================
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$celltype)) {
+    stop("❌ 全局颜色方案未初始化，请先调用 create_global_color_scheme()")
+  }
+  
+  if (is.null(CONFIG$colors$density_zone)) {
+    stop("❌ 密度区域颜色未初始化")
+  }
+  
+  # ========================================
+  # 2. 获取全局颜色方案
+  # ========================================
+  
+  # ✅ 使用全局颜色
+  celltype_colors_global <- CONFIG$colors$celltype
+  zone_colors_global <- CONFIG$colors$density_zone
+  
+  # 全局所有细胞类型（保持顺序）
+  all_celltypes <- names(celltype_colors_global)
+  
   n_zones <- length(unique(combined_data$density_zone))
-  zone_colors <- get_zone_colors(n_zones)
   zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
-  celltype_colors <- get_celltype_colors(unique(combined_data$celltype_clean))
+  
+  cat(sprintf("\n📊 绘制综合分析图...\n"))
+  cat(sprintf("   样本数: %d\n", length(unique(combined_data$sample))))
+  cat(sprintf("   细胞类型: %d (全局)\n", length(all_celltypes)))
+  cat(sprintf("   密度区域: %d\n", n_zones))
+  
+  # ========================================
+  # 3. 准备数据
+  # ========================================
   
   # 确保zone按顺序排列
   combined_data <- combined_data %>%
     dplyr::mutate(
       density_zone = factor(density_zone, levels = zone_levels),
+      # ✅ 使用全局细胞类型顺序
+      celltype_clean = factor(celltype_clean, levels = all_celltypes),
       zone_numeric = as.numeric(gsub("Zone_", "", density_zone))
     )
   
-  # 1. 箱线图
+  # ========================================
+  # 4. 图1：箱线图（分面）
+  # ========================================
+  
   p1 <- ggplot(combined_data, aes(x = density_zone, y = percentage, fill = density_zone)) +
-    geom_boxplot(alpha = 0.8, outlier.shape = 16, outlier.size = 1.5, color = "gray30", linewidth = 0.5) +
-    scale_fill_manual(values = zone_colors, guide = "none") +
-    facet_wrap(~celltype_clean, scales = "free_y", ncol = 4) +
+    geom_boxplot(
+      alpha = 0.8, 
+      outlier.shape = 16, 
+      outlier.size = 1.5, 
+      color = "gray30", 
+      linewidth = 0.5
+    ) +
+    scale_fill_manual(
+      values = zone_colors_global,  # ✅ 使用全局区域颜色
+      guide = "none"
+    ) +
+    # ✅ 使用全局细胞类型分面
+    facet_wrap(
+      ~celltype_clean, 
+      scales = "free_y", 
+      ncol = 4,
+      drop = FALSE  # ✅ 显示所有细胞类型
+    ) +
     labs(
       title = "Cell Type Percentage Distribution by Density Zone",
-      subtitle = sprintf("Data from %d samples", length(unique(combined_data$sample))),
+      subtitle = sprintf("Data from %d samples | %d cell types (global colors)", 
+                        length(unique(combined_data$sample)),
+                        length(all_celltypes)),
       x = "Density Zone (Zone_0=Core/High → Higher=Outer/Low)",
       y = "Percentage (%)"
     ) +
     theme_bw() +
     theme(
-      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
-      plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray30"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14, margin = margin(b = 5)),
+      plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray30", margin = margin(b = 10)),
       axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
       axis.text.y = element_text(size = 9),
       axis.title = element_text(size = 11, face = "bold"),
       strip.background = element_rect(fill = "gray90", color = "gray70"),
       strip.text = element_text(face = "bold", size = 10),
-      panel.grid.minor = element_blank()
+      panel.grid.minor = element_blank(),
+      plot.margin = margin(15, 15, 10, 15)
     )
   
-  # 2. 趋势图
+  # ========================================
+  # 5. 图2：趋势图
+  # ========================================
+  
+  # 计算趋势数据
   trend_data <- combined_data %>%
     dplyr::group_by(celltype_clean, zone_numeric, density_zone) %>%
     dplyr::summarise(
-      mean_pct = mean(percentage),
-      se_pct = sd(percentage) / sqrt(n()),
+      mean_pct = mean(percentage, na.rm = TRUE),
+      se_pct = sd(percentage, na.rm = TRUE) / sqrt(n()),
+      n_obs = n(),
       .groups = "drop"
+    )
+  
+  # ✅ 补全缺失的组合（某些细胞类型在某些区域可能没有数据）
+  complete_trend_grid <- expand.grid(
+    celltype_clean = all_celltypes,
+    zone_numeric = 0:(n_zones - 1),
+    stringsAsFactors = FALSE
+  ) %>%
+    dplyr::mutate(
+      density_zone = factor(sprintf("Zone_%d", zone_numeric), levels = zone_levels)
+    )
+  
+  trend_data <- complete_trend_grid %>%
+    dplyr::left_join(trend_data, by = c("celltype_clean", "zone_numeric", "density_zone")) %>%
+    dplyr::mutate(
+      mean_pct = ifelse(is.na(mean_pct), 0, mean_pct),
+      se_pct = ifelse(is.na(se_pct), 0, se_pct),
+      n_obs = ifelse(is.na(n_obs), 0, n_obs),
+      celltype_clean = factor(celltype_clean, levels = all_celltypes)
     )
   
   p2 <- ggplot(trend_data, aes(x = zone_numeric, y = mean_pct, color = celltype_clean, group = celltype_clean)) +
     geom_line(linewidth = 1.2, alpha = 0.8) +
     geom_point(size = 3, alpha = 0.9) +
     geom_errorbar(
-      aes(ymin = mean_pct - se_pct, ymax = mean_pct + se_pct), 
+      aes(ymin = pmax(mean_pct - se_pct, 0), ymax = mean_pct + se_pct),  # 不低于0
       width = 0.2, 
       linewidth = 0.8,
       alpha = 0.7
     ) +
-    scale_color_manual(values = celltype_colors, name = "Cell Type") +
+    scale_color_manual(
+      values = celltype_colors_global,  # ✅ 使用全局细胞类型颜色
+      name = "Cell Type",
+      breaks = all_celltypes,  # ✅ 显示所有类型
+      drop = FALSE  # ✅ 不丢弃未使用的级别
+    ) +
     scale_x_continuous(
       breaks = 0:(n_zones - 1),
       labels = zone_levels
@@ -3211,719 +4102,1020 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
     ) +
     theme_classic() +
     theme(
-      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
-      plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray30"),
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14, margin = margin(b = 5)),
+      plot.subtitle = element_text(hjust = 0.5, size = 10, color = "gray30", margin = margin(b = 10)),
       axis.text = element_text(size = 10),
       axis.title = element_text(size = 11, face = "bold"),
       axis.text.x = element_text(angle = 45, hjust = 1),
       legend.position = "right",
       legend.title = element_text(size = 11, face = "bold"),
       legend.text = element_text(size = 9),
+      legend.key.height = unit(0.8, "cm"),
       panel.grid.major = element_line(color = "gray90"),
-      panel.grid.minor = element_blank()
+      panel.grid.minor = element_blank(),
+      plot.margin = margin(10, 15, 15, 15)
     )
   
-  # 3. 添加zone颜色参考条
+  # ========================================
+  # 6. 添加zone颜色参考条（底部）
+  # ========================================
+  
   zone_ref_data <- data.frame(
     zone_numeric = 0:(n_zones - 1),
     density_zone = factor(zone_levels, levels = zone_levels),
     y_position = 0
   )
   
+  max_y <- max(trend_data$mean_pct + trend_data$se_pct, na.rm = TRUE)
+  
   p2 <- p2 +
     geom_tile(
       data = zone_ref_data,
       aes(x = zone_numeric, y = y_position, fill = density_zone),
-      height = max(trend_data$mean_pct) * 0.05,
+      height = max_y * 0.05,  # 动态高度
       alpha = 0.6,
       inherit.aes = FALSE
     ) +
-    scale_fill_manual(values = zone_colors, guide = "none")
+    scale_fill_manual(
+      values = zone_colors_global,  # ✅ 使用全局区域颜色
+      guide = "none"
+    )
   
-  # 合并
-  p_combined <- p1 / p2 + plot_layout(heights = c(2, 1.2))
+  # ========================================
+  # 7. 合并两个图
+  # ========================================
+  
+  p_combined <- p1 / p2 + 
+    plot_layout(heights = c(2, 1.2)) +
+    plot_annotation(
+      caption = "Global color scheme applied: colors are consistent across all samples and plots",
+      theme = theme(
+        plot.caption = element_text(size = 9, color = "gray40", hjust = 1, margin = margin(t = 10))
+      )
+    )
+  
+  cat("   ✅ 综合分析图绘制完成\n")
   
   return(p_combined)
 }
+
+
+# ========================================
+# 向后兼容函数（已弃用）
+# ========================================
+
+#' @deprecated 请使用 get_zone_colors() from 01_color_schemes.R
+get_zone_colors <- function(n_zones) {
+  warning("get_zone_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
+  colorRampPalette(c(
+    "#67001f", "#b2182b", "#d6604d", "#f4a582", "#fddbc7",
+    "#d1e5f0", "#92c5de", "#4393c3", "#2166ac", "#053061"
+  ))(n_zones)
+}
+
+#' @deprecated 请使用 get_celltype_colors() from 01_color_schemes.R
+get_celltype_colors <- function(celltypes) {
+  warning("get_celltype_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
+  require(RColorBrewer)
+  n <- length(celltypes)
+  
+  if (n <= 8) {
+    colors <- RColorBrewer::brewer.pal(max(3, n), "Set2")
+  } else if (n <= 12) {
+    colors <- RColorBrewer::brewer.pal(n, "Set3")
+  } else {
+    colors <- c(
+      RColorBrewer::brewer.pal(9, "Set1"),
+      RColorBrewer::brewer.pal(8, "Set2"),
+      RColorBrewer::brewer.pal(12, "Set3")
+    )[1:n]
+  }
+  
+  names(colors) <- celltypes
+  return(colors)
+}
+
+cat("✅ 06_plot_combined.R 已加载（全局统一配色版）\n")
 ```
 
 ---
 
 ### 08_plot_celltype_utils/07_statistics.R
 
-- **大小**: 1.47 KB
-- **修改时间**: 2025-11-06 22:25:57
+- **大小**: 8.33 KB
+- **修改时间**: 2025-11-07 16:18:42
 
 ```r
 # ===================================================================
-# 07_statistics.R
+# 07_statistics.R (全局统一配色版)
 # 统计摘要生成
 # Author: Assistant
-# Date: 2025-11-06
+# Date: 2025-11-07
 # ===================================================================
 
 #' 生成统计摘要
 #'
-#' @param combined_data 合并的zone组成数据
+#' @param combined_data 合并的zone组成数据（必须包含 celltype_clean, density_zone, percentage, sample）
+#' @param CONFIG 配置列表（可选，用于获取全局细胞类型颜色）
 #'
-#' @return 统计摘要数据框
+#' @return 统计摘要数据框，包含以下列：
+#'   - celltype_clean: 细胞类型名称
+#'   - mean_pct_all: 跨所有zone的平均百分比
+#'   - sd_pct_all: 标准差
+#'   - median_pct_all: 中位数
+#'   - max_zone: 富集最高的zone
+#'   - max_pct: 最高百分比
+#'   - min_zone: 富集最低的zone
+#'   - min_pct: 最低百分比
+#'   - core_enrichment: 核心区（Zone_0, Zone_1）与外围区的差异
+#'   - enrichment_type: 富集类型（Core-enriched/Peripheral-enriched/Evenly-distributed）
+#'   - n_samples: 包含该细胞类型的样本数
+#'   - n_observations: 观测次数
 #'
 #' @details
-#' 计算内容：
-#' - 每种细胞类型的平均百分比和标准差
-#' - 富集最多/最少的zone
-#' - 核心区（Zone_0和Zone_1）vs外围区的富集差异
-#' - 样本数量
+#' 富集类型判定标准：
+#' - Core-enriched: core_enrichment > 5
+#' - Peripheral-enriched: core_enrichment < -5
+#' - Evenly-distributed: -5 <= core_enrichment <= 5
 #'
 #' @examples
-#' summary <- generate_summary_statistics(combined_data)
+#' summary_stats <- generate_summary_statistics(combined_data)
+#' write.csv(summary_stats, "summary_statistics.csv", row.names = FALSE)
 #'
-generate_summary_statistics <- function(combined_data) {
+generate_summary_statistics <- function(combined_data, CONFIG = NULL) {
   
   require(dplyr)
   
-  # 计算每种细胞类型在不同区域的富集情况
+  cat("\n📊 生成统计摘要...\n")
+  
+  # ========================================
+  # 1. 数据验证
+  # ========================================
+  
+  required_cols <- c("celltype_clean", "density_zone", "percentage", "sample")
+  missing_cols <- required_cols[!required_cols %in% colnames(combined_data)]
+  
+  if (length(missing_cols) > 0) {
+    stop(sprintf("❌ 数据缺少必需列: %s", paste(missing_cols, collapse = ", ")))
+  }
+  
+  if (nrow(combined_data) == 0) {
+    stop("❌ combined_data 为空")
+  }
+  
+  # ========================================
+  # 2. 计算统计摘要
+  # ========================================
+  
   summary <- combined_data %>%
-    dplyr::mutate(zone_numeric = as.numeric(gsub("Zone_", "", density_zone))) %>%
+    dplyr::mutate(
+      # 提取zone编号
+      zone_numeric = as.numeric(gsub("Zone_", "", density_zone))
+    ) %>%
     dplyr::group_by(celltype_clean) %>%
     dplyr::summarise(
-      mean_pct_all = mean(percentage),
-      sd_pct_all = sd(percentage),
+      # 基础统计量
+      mean_pct_all = mean(percentage, na.rm = TRUE),
+      sd_pct_all = sd(percentage, na.rm = TRUE),
+      median_pct_all = median(percentage, na.rm = TRUE),
+      
+      # 富集最高的区域
       max_zone = density_zone[which.max(percentage)],
-      max_pct = max(percentage),
+      max_pct = max(percentage, na.rm = TRUE),
+      
+      # 富集最低的区域
       min_zone = density_zone[which.min(percentage)],
-      min_pct = min(percentage),
-      # Zone_0和Zone_1是核心区，其他是外围
-      core_enrichment = mean(percentage[zone_numeric <= 1]) - mean(percentage[zone_numeric > 1]),
+      min_pct = min(percentage, na.rm = TRUE),
+      
+      # 核心区（Zone_0 和 Zone_1）vs 外围区富集差异
+      # 正值表示核心富集，负值表示外围富集
+      core_enrichment = mean(percentage[zone_numeric <= 1], na.rm = TRUE) - 
+                       mean(percentage[zone_numeric > 1], na.rm = TRUE),
+      
+      # 样本覆盖度
       n_samples = length(unique(sample)),
+      n_observations = n(),
+      
       .groups = "drop"
     ) %>%
+    # ========================================
+    # 3. 分类富集类型
+    # ========================================
+    dplyr::mutate(
+      enrichment_type = dplyr::case_when(
+        core_enrichment > 5 ~ "Core-enriched",
+        core_enrichment < -5 ~ "Peripheral-enriched",
+        TRUE ~ "Evenly-distributed"
+      )
+    ) %>%
+    # 按核心富集度排序（核心富集的细胞类型排在前面）
     dplyr::arrange(desc(core_enrichment))
+  
+  # ========================================
+  # 4. 添加颜色信息（如果提供了CONFIG）
+  # ========================================
+  
+  if (!is.null(CONFIG) && !is.null(CONFIG$colors) && !is.null(CONFIG$colors$celltype)) {
+    celltype_colors <- CONFIG$colors$celltype
+    
+    summary <- summary %>%
+      dplyr::mutate(
+        color = sapply(celltype_clean, function(ct) {
+          celltype_colors[ct] %||% "#CCCCCC"
+        })
+      )
+  }
+  
+  # ========================================
+  # 5. 打印摘要
+  # ========================================
+  
+  cat(sprintf("   📊 分析了 %d 种细胞类型\n", nrow(summary)))
+  cat(sprintf("   📈 总观测次数: %d\n", sum(summary$n_observations)))
+  cat(sprintf("   📦 来自 %d 个样本\n", length(unique(combined_data$sample))))
+  cat("\n")
+  
+  # 富集类型统计
+  n_core <- sum(summary$enrichment_type == "Core-enriched")
+  n_periph <- sum(summary$enrichment_type == "Peripheral-enriched")
+  n_even <- sum(summary$enrichment_type == "Evenly-distributed")
+  
+  cat("   📍 富集类型分布:\n")
+  cat(sprintf("      🔴 核心富集 (Core):        %2d (%.1f%%)\n", 
+              n_core, 100 * n_core / nrow(summary)))
+  cat(sprintf("      🔵 外围富集 (Peripheral):  %2d (%.1f%%)\n", 
+              n_periph, 100 * n_periph / nrow(summary)))
+  cat(sprintf("      ⚪ 均匀分布 (Even):         %2d (%.1f%%)\n", 
+              n_even, 100 * n_even / nrow(summary)))
+  cat("\n")
+  
+  # ========================================
+  # 6. 打印核心富集 TOP 5
+  # ========================================
+  
+  if (n_core > 0) {
+    cat("   🔴 核心富集 TOP 5:\n")
+    top_core <- head(summary %>% dplyr::filter(enrichment_type == "Core-enriched"), 5)
+    
+    for (i in 1:nrow(top_core)) {
+      cat(sprintf("      %d. %-30s: +%6.2f%% (最高: %s, %.2f%%)\n", 
+                  i, 
+                  top_core$celltype_clean[i], 
+                  top_core$core_enrichment[i],
+                  top_core$max_zone[i],
+                  top_core$max_pct[i]))
+    }
+    cat("\n")
+  }
+  
+  # ========================================
+  # 7. 打印外围富集 TOP 5
+  # ========================================
+  
+  if (n_periph > 0) {
+    cat("   🔵 外围富集 TOP 5:\n")
+    top_periph <- head(
+      summary %>% 
+        dplyr::filter(enrichment_type == "Peripheral-enriched") %>%
+        dplyr::arrange(core_enrichment), 
+      5
+    )
+    
+    for (i in 1:nrow(top_periph)) {
+      cat(sprintf("      %d. %-30s: %7.2f%% (最高: %s, %.2f%%)\n", 
+                  i, 
+                  top_periph$celltype_clean[i], 
+                  top_periph$core_enrichment[i],
+                  top_periph$max_zone[i],
+                  top_periph$max_pct[i]))
+    }
+    cat("\n")
+  }
+  
+  # ========================================
+  # 8. 打印均匀分布细胞类型
+  # ========================================
+  
+  if (n_even > 0 && n_even <= 5) {
+    cat("   ⚪ 均匀分布细胞类型:\n")
+    even_types <- summary %>% dplyr::filter(enrichment_type == "Evenly-distributed")
+    
+    for (i in 1:nrow(even_types)) {
+      cat(sprintf("      • %-30s: %7.2f%% (范围: %.2f%% - %.2f%%)\n", 
+                  even_types$celltype_clean[i], 
+                  even_types$core_enrichment[i],
+                  even_types$min_pct[i],
+                  even_types$max_pct[i]))
+    }
+    cat("\n")
+  }
+  
+  cat("   ✅ 统计摘要生成完成\n")
   
   return(summary)
 }
+
+
+#' 生成zone级别的统计摘要
+#'
+#' @param combined_data 合并的zone组成数据
+#'
+#' @return zone级别的统计摘要
+#'
+generate_zone_summary <- function(combined_data) {
+  
+  require(dplyr)
+  
+  cat("\n📊 生成zone级别统计...\n")
+  
+  zone_summary <- combined_data %>%
+    dplyr::group_by(density_zone) %>%
+    dplyr::summarise(
+      n_celltypes = length(unique(celltype_clean)),
+      n_samples = length(unique(sample)),
+      n_observations = n(),
+      mean_diversity = mean(percentage),  # 平均富集度（多样性指标）
+      sd_diversity = sd(percentage),
+      .groups = "drop"
+    ) %>%
+    dplyr::arrange(density_zone)
+  
+  cat(sprintf("   📊 分析了 %d 个密度区域\n", nrow(zone_summary)))
+  
+  for (i in 1:nrow(zone_summary)) {
+    cat(sprintf("   • %-10s: %2d 种细胞类型, %2d 个样本\n",
+                zone_summary$density_zone[i],
+                zone_summary$n_celltypes[i],
+                zone_summary$n_samples[i]))
+  }
+  
+  cat("   ✅ Zone统计完成\n")
+  
+  return(zone_summary)
+}
+
+cat("✅ 07_statistics.R 已加载（全局统一配色版）\n")
 ```
 
 ---
 
 ### 08_plot_celltype_utils/08_validation.R
 
-- **大小**: 3.71 KB
-- **修改时间**: 2025-11-07 14:03:40
+- **大小**: 8.45 KB
+- **修改时间**: 2025-11-07 16:18:51
 
 ```r
-#!/usr/bin/env Rscript
 # ===================================================================
-# 验证模块
+# 08_validation.R (简化版)
+# 数据验证模块
+# Author: Assistant
+# Date: 2025-11-07
 # ===================================================================
 
-#' 验证输入参数
+#' 验证配置对象
 #' 
-#' @param sample_list 样本列表
 #' @param CONFIG 配置对象
-validate_inputs <- function(sample_list, CONFIG) {
+#' @return invisible(TRUE)
+#'
+#' @details
+#' 验证内容：
+#' - 必需参数是否存在
+#' - 输出目录是否定义
+#' - 自动创建不存在的目录
+#'
+validate_config <- function(CONFIG) {
   
-  if (!is.list(sample_list) || length(sample_list) == 0) {
-    stop("❌ sample_list 必须是非空列表")
-  }
+  cat("\n🔍 验证配置...\n")
   
-  # 验证必需目录
-  required_dirs <- c("overlay", "celltype", "composition", "heatmaps", "combined")
+  # ========================================
+  # 1. 验证必需参数
+  # ========================================
   
-  for (dir_name in required_dirs) {
-    if (is.null(CONFIG$dirs[[dir_name]])) {
-      stop(sprintf("❌ CONFIG$dirs$%s 未定义", dir_name))
-    }
-    if (!dir.exists(CONFIG$dirs[[dir_name]])) {
-      dir.create(CONFIG$dirs[[dir_name]], recursive = TRUE, showWarnings = FALSE)
-    }
-  }
-  
-  invisible(TRUE)
-}
-
-
-#' 验证必需函数
-validate_required_functions <- function() {
-  
-  required_functions <- c(
-    "calculate_density_zones",
-    "plot_celltype_density_overlay",
-    "plot_zone_composition",
-    "plot_combined_heatmap",
-    "plot_combined_analysis",
-    "generate_summary_statistics"
+  required_params <- c(
+    "col_col",                        # 列坐标列名
+    "row_col",                        # 行坐标列名
+    "celltype_col",                   # 细胞类型列名
+    "density_threshold_percentile",   # 密度阈值百分位
+    "n_zones"                         # 密度区域数量
   )
   
-  missing_funcs <- required_functions[!sapply(required_functions, exists)]
-  
-  if (length(missing_funcs) > 0) {
-    stop(sprintf("❌ 缺少必需函数: %s", paste(missing_funcs, collapse = ", ")))
+  if (is.null(CONFIG$params)) {
+    stop("❌ CONFIG$params 未定义")
   }
+  
+  missing_params <- required_params[!required_params %in% names(CONFIG$params)]
+  
+  if (length(missing_params) > 0) {
+    stop(sprintf("❌ 缺少必需参数: %s", paste(missing_params, collapse = ", ")))
+  }
+  
+  cat("   ✅ 必需参数完整\n")
+  
+  # ========================================
+  # 2. 验证参数值的合理性
+  # ========================================
+  
+  # 验证密度阈值百分位
+  if (CONFIG$params$density_threshold_percentile < 0 || 
+      CONFIG$params$density_threshold_percentile > 1) {
+    stop("❌ density_threshold_percentile 必须在 [0, 1] 范围内")
+  }
+  
+  # 验证zone数量
+  if (CONFIG$params$n_zones < 2 || CONFIG$params$n_zones > 20) {
+    warning("⚠️  n_zones 通常在 2-20 之间，当前值可能不合理")
+  }
+  
+  cat("   ✅ 参数值合理\n")
+  
+  # ========================================
+  # 3. 验证输出目录
+  # ========================================
+  
+  if (is.null(CONFIG$output)) {
+    stop("❌ CONFIG$output 未定义")
+  }
+  
+  if (is.null(CONFIG$output$plot_dir) || is.null(CONFIG$output$data_dir)) {
+    stop("❌ 必须指定 CONFIG$output$plot_dir 和 CONFIG$output$data_dir")
+  }
+  
+  # 创建输出目录
+  for (dir_path in c(CONFIG$output$plot_dir, CONFIG$output$data_dir)) {
+    if (!dir.exists(dir_path)) {
+      dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+      cat(sprintf("   📁 创建目录: %s\n", dir_path))
+    } else {
+      cat(sprintf("   📁 目录已存在: %s\n", dir_path))
+    }
+  }
+  
+  cat("   ✅ 输出目录就绪\n")
   
   invisible(TRUE)
 }
 
 
-#' 设置颜色方案
+#' 验证数据列表
 #' 
-#' @param first_sample 第一个样本（用于提取细胞类型）
+#' @param data_list 数据框列表
+#' @param sample_ids 样本ID向量
 #' @param CONFIG 配置对象
-#' @param celltype_col 细胞类型列名
-#' @param density_bins 密度分区数量
-setup_colors <- function(first_sample, CONFIG, celltype_col, density_bins) {
+#' @return invisible(TRUE)
+#'
+#' @details
+#' 验证内容：
+#' - 数据列表结构
+#' - 样本ID数量匹配
+#' - 每个数据框的必需列
+#' - 数据量检查
+#'
+validate_data_list <- function(data_list, sample_ids, CONFIG) {
   
-  # 从第一个样本获取所有细胞类型
-  all_celltypes <- sort(unique(as.character(first_sample[[celltype_col]][,1])))
+  cat("\n🔍 验证数据列表...\n")
   
-  if (is.null(CONFIG$colors$celltype_colors)) {
-    CONFIG$colors$celltype_colors <- get_celltype_colors(all_celltypes)
-    cat(sprintf("🎨 已生成 %d 种细胞类型颜色方案\n", length(CONFIG$colors$celltype_colors)))
+  # ========================================
+  # 1. 验证基本结构
+  # ========================================
+  
+  if (!is.list(data_list) || length(data_list) == 0) {
+    stop("❌ data_list 必须是非空列表")
   }
   
-  if (is.null(CONFIG$colors$zone_colors)) {
-    CONFIG$colors$zone_colors <- get_zone_colors(density_bins)
+  if (length(data_list) != length(sample_ids)) {
+    stop(sprintf("❌ data_list 长度 (%d) 与 sample_ids 长度 (%d) 不匹配",
+                length(data_list), length(sample_ids)))
   }
   
-  invisible(CONFIG)
+  cat(sprintf("   📦 数据列表包含 %d 个样本\n", length(data_list)))
+  
+  # ========================================
+  # 2. 验证每个数据框
+  # ========================================
+  
+  n_valid <- 0
+  n_warnings <- 0
+  
+  required_cols <- c(
+    CONFIG$params$col_col, 
+    CONFIG$params$row_col, 
+    CONFIG$params$celltype_col
+  )
+  
+  for (i in seq_along(data_list)) {
+    df <- data_list[[i]]
+    sid <- sample_ids[i]
+    
+    # 检查是否为数据框
+    if (!is.data.frame(df)) {
+      warning(sprintf("   ⚠️  样本 %s: 不是数据框，跳过", sid))
+      n_warnings <- n_warnings + 1
+      next
+    }
+    
+    # 检查必需列
+    missing_cols <- required_cols[!required_cols %in% colnames(df)]
+    
+    if (length(missing_cols) > 0) {
+      warning(sprintf("   ⚠️  样本 %s: 缺少列 %s", 
+                     sid, paste(missing_cols, collapse = ", ")))
+      n_warnings <- n_warnings + 1
+      next
+    }
+    
+    # 检查数据量
+    if (nrow(df) == 0) {
+      warning(sprintf("   ⚠️  样本 %s: 数据为空", sid))
+      n_warnings <- n_warnings + 1
+      next
+    }
+    
+    # 检查坐标是否有效
+    n_na_coords <- sum(is.na(df[[CONFIG$params$col_col]]) | 
+                      is.na(df[[CONFIG$params$row_col]]))
+    
+    if (n_na_coords > 0) {
+      warning(sprintf("   ⚠️  样本 %s: %d 个spots坐标缺失", sid, n_na_coords))
+      n_warnings <- n_warnings + 1
+    }
+    
+    n_valid <- n_valid + 1
+  }
+  
+  # ========================================
+  # 3. 汇总验证结果
+  # ========================================
+  
+  cat(sprintf("   ✅ 有效样本: %d/%d\n", n_valid, length(data_list)))
+  
+  if (n_warnings > 0) {
+    cat(sprintf("   ⚠️  警告: %d 个\n", n_warnings))
+  }
+  
+  if (n_valid == 0) {
+    stop("❌ 没有有效的样本数据")
+  }
+  
+  cat("   ✅ 数据验证通过\n")
+  
+  invisible(TRUE)
 }
 
 
-#' 验证样本数据
+#' 验证必需函数是否加载
 #' 
-#' @param seurat_subset Seurat 对象
-#' @param sample_id 样本 ID
-#' @param celltype_col 细胞类型列名
-#' 
-#' @return 验证结果列表
-validate_sample_data <- function(seurat_subset, sample_id, celltype_col) {
+#' @return invisible(TRUE)
+#'
+#' @details
+#' 检查所有必需的函数是否已加载到环境中
+#'
+validate_required_functions <- function() {
   
-  # 检查数据量
-  if (ncol(seurat_subset) == 0) {
-    return(list(valid = FALSE, error = "No data"))
-  }
+  cat("\n🔍 验证必需函数...\n")
   
-  # 获取坐标
-  coords <- tryCatch({
-    Seurat::GetTissueCoordinates(
-      seurat_subset,
-      cols = c("row", "col"),
-      scale = NULL
-    )
-  }, error = function(e) {
-    return(NULL)
-  })
-  
-  if (is.null(coords)) {
-    return(list(valid = FALSE, error = "Cannot get coordinates"))
-  }
-  
-  # 合并元数据
-  df <- seurat_subset@meta.data %>%
-    tibble::rownames_to_column("barcode") %>%
-    dplyr::left_join(
-      coords %>% tibble::rownames_to_column("barcode"), 
-      by = "barcode"
-    ) %>%
-    dplyr::filter(!is.na(col), !is.na(row))
-  
-  if (nrow(df) == 0) {
-    return(list(valid = FALSE, error = "No valid coordinates"))
-  }
-  
-  # 检查必需列
-  if (!celltype_col %in% colnames(df)) {
-    return(list(valid = FALSE, error = "Missing celltype column"))
-  }
-  
-  if (!"ClockGene_High" %in% colnames(df)) {
-    return(list(valid = FALSE, error = "Missing ClockGene_High column"))
-  }
-  
-  # 清理细胞类型
-  df$celltype_clean <- as.character(df[[celltype_col]])
-  df$celltype_clean[is.na(df$celltype_clean)] <- "Unknown"
-  
-  return(list(valid = TRUE, df = df))
-}
-
-cat("✅ 08_validation.R 已加载\n")
-```
-
----
-
-### 08_plot_celltype_utils/09_save_plots.R
-
-- **大小**: 5.5 KB
-- **修改时间**: 2025-11-07 14:04:12
-
-```r
-#!/usr/bin/env Rscript
-# ===================================================================
-# 图形保存模块
-# ===================================================================
-
-#' 处理单个样本
-#' 
-#' @param sample_id 样本 ID
-#' @param sample_list 样本列表
-#' @param CONFIG 配置对象
-#' @param celltype_col 细胞类型列名
-#' @param density_bins 密度分区数量
-#' @param plot_overlay 是否绘制叠加图
-#' @param plot_composition 是否绘制组成图
-#' @param progressor 进度条对象
-#' 
-#' @return 处理结果
-process_single_sample <- function(sample_id, sample_list, CONFIG, 
-                                  celltype_col, density_bins,
-                                  plot_overlay, plot_composition,
-                                  progressor) {
-  
-  tryCatch({
+  required_functions <- c(
+    # 核心功能
+    "standardize_celltype_names",      # 名称标准化
+    "create_global_color_scheme",       # 全局颜色方案
+    "calculate_density_zones",          # 密度区域计算
     
-    # 1. 获取并验证数据
-    seurat_subset <- sample_list[[sample_id]]
-    validation <- validate_sample_data(seurat_subset, sample_id, celltype_col)
+    # 绘图函数
+    "plot_celltype_density_overlay",    # 叠加图
+    "plot_zone_composition",            # 组成图
+    "plot_combined_heatmap",            # 热图
+    "plot_combined_analysis",           # 综合分析图
     
-    if (!validation$valid) {
-      progressor(message = sprintf("⚠️  %s - %s", sample_id, validation$error))
-      return(list(sample = sample_id, success = FALSE, error = validation$error))
+    # 统计分析
+    "generate_summary_statistics",      # 统计摘要
+    
+    # 操作符
+    "%||%"                              # 空值默认值
+  )
+  
+  missing_funcs <- character()
+  
+  for (func_name in required_functions) {
+    if (!exists(func_name, mode = "function")) {
+      missing_funcs <- c(missing_funcs, func_name)
     }
-    
-    df <- validation$df
-    
-    # 统计基本信息
-    n_spots <- nrow(df)
-    n_high <- sum(df$ClockGene_High, na.rm = TRUE)
-    high_pct <- 100 * mean(df$ClockGene_High, na.rm = TRUE)
-    
-    # 2. 计算密度区域
-    density_data <- calculate_density_zones(
-      df = df,
-      density_bins = density_bins,
-      expand_margin = CONFIG$plot$expand_margin %||% 0.1
-    )
-    
-    if (is.null(density_data)) {
-      progressor(message = sprintf("⚠️  %s - 密度计算失败", sample_id))
-      return(list(sample = sample_id, success = FALSE, error = "Density calculation failed"))
-    }
-    
-    # 合并密度信息
-    df <- df %>%
-      dplyr::left_join(
-        density_data$spot_zones %>% 
-          dplyr::select(col, row, density_zone, density_value),
-        by = c("col", "row")
+  }
+  
+  if (length(missing_funcs) > 0) {
+    stop(sprintf(
+      "❌ 缺少必需函数: %s\n\n请检查是否加载了所有工具函数文件:\n%s",
+      paste(missing_funcs, collapse = ", "),
+      paste(
+        "  • 00_operators.R",
+        "  • 01_color_schemes.R",
+        "  • 02_density_zones.R",
+        "  • 03_plot_overlay.R",
+        "  • 04_plot_composition.R",
+        "  • 05_plot_heatmap.R",
+        "  • 06_plot_combined.R",
+        "  • 07_statistics.R",
+        sep = "\n"
       )
-    
-    # 3. 计算区域组成
-    zone_composition <- df %>%
-      dplyr::filter(!is.na(density_zone)) %>%
-      dplyr::group_by(density_zone, celltype_clean) %>%
-      dplyr::summarise(count = dplyr::n(), .groups = "drop") %>%
-      dplyr::group_by(density_zone) %>%
-      dplyr::mutate(
-        total = sum(count),
-        percentage = 100 * count / total
-      ) %>%
-      dplyr::ungroup() %>%
-      dplyr::mutate(sample = sample_id)
-    
-    # 4. 绘制并保存图形
-    plot_result <- save_sample_plots(
-      df = df,
-      density_data = density_data,
-      zone_composition = zone_composition,
-      sample_id = sample_id,
-      CONFIG = CONFIG,
-      plot_overlay = plot_overlay,
-      plot_composition = plot_composition
-    )
-    
-    # 更新进度
-    progressor(message = sprintf("✅ %s (%.2f MB)", sample_id, plot_result$total_size_mb))
-    
-    # 5. 返回结果
-    return(list(
-      sample = sample_id,
-      success = TRUE,
-      zone_composition = zone_composition,
-      n_spots = n_spots,
-      n_high = n_high,
-      high_pct = high_pct,
-      n_zones = length(unique(zone_composition$density_zone)),
-      n_celltypes = length(unique(zone_composition$celltype_clean)),
-      n_na_zones = sum(is.na(df$density_zone)),
-      output_files = plot_result$output_files,
-      total_size_mb = plot_result$total_size_mb
     ))
-    
-  }, error = function(e) {
-    progressor(message = sprintf("❌ %s - %s", sample_id, e$message))
-    return(list(
-      sample = sample_id,
-      success = FALSE,
-      error = as.character(e$message)
-    ))
-  })
+  }
+  
+  cat(sprintf("   ✅ 所有 %d 个必需函数已加载\n", length(required_functions)))
+  
+  invisible(TRUE)
 }
 
 
-#' 保存样本图形
+#' 快速数据质量检查
 #' 
 #' @param df 数据框
-#' @param density_data 密度数据
-#' @param zone_composition 区域组成
-#' @param sample_id 样本 ID
+#' @param sample_id 样本ID
 #' @param CONFIG 配置对象
-#' @param plot_overlay 是否绘制叠加图
-#' @param plot_composition 是否绘制组成图
-#' 
-#' @return 保存结果
-save_sample_plots <- function(df, density_data, zone_composition, sample_id, CONFIG,
-                              plot_overlay, plot_composition) {
+#' @return 质量检查结果列表
+#'
+quick_quality_check <- function(df, sample_id, CONFIG) {
   
-  output_files <- list()
-  total_size <- 0
-  safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+  result <- list(
+    sample_id = sample_id,
+    passed = TRUE,
+    warnings = character(),
+    info = list()
+  )
   
-  # 叠加图
-  if (plot_overlay) {
-    p_overlay <- plot_celltype_density_overlay(
-      df = df,
-      density_data = density_data,
-      sample_id = sample_id,
-      CONFIG = CONFIG
-    )
-    
-    overlay_file <- file.path(
-      CONFIG$dirs$overlay, 
-      sprintf("celltype_overlay_%s.pdf", safe_name)
-    )
-    
-    ggplot2::ggsave(
-      overlay_file,
-      plot = p_overlay,
-      width = 12, 
-      height = 10,
-      dpi = CONFIG$plot$dpi %||% 300,
-      bg = "white"
-    )
-    
-    output_files$overlay <- overlay_file
-    total_size <- total_size + file.size(overlay_file)
+  # 检查数据量
+  result$info$n_rows <- nrow(df)
+  
+  if (nrow(df) < 100) {
+    result$warnings <- c(result$warnings, "数据量较少（< 100 spots）")
   }
   
-  # 组成图
-  if (plot_composition) {
-    p_comp <- plot_zone_composition(
-      zone_composition = zone_composition,
-      sample_id = sample_id,
-      CONFIG = CONFIG
-    )
-    
-    composition_file <- file.path(
-      CONFIG$dirs$composition, 
-      sprintf("composition_%s.pdf", safe_name)
-    )
-    
-    ggplot2::ggsave(
-      composition_file,
-      plot = p_comp,
-      width = 12, 
-      height = 6,
-      dpi = CONFIG$plot$dpi %||% 300,
-      bg = "white"
-    )
-    
-    output_files$composition <- composition_file
-    total_size <- total_size + file.size(composition_file)
+  # 检查坐标范围
+  col_range <- range(df[[CONFIG$params$col_col]], na.rm = TRUE)
+  row_range <- range(df[[CONFIG$params$row_col]], na.rm = TRUE)
+  
+  result$info$col_range <- col_range
+  result$info$row_range <- row_range
+  
+  # 检查细胞类型数量
+  n_celltypes <- length(unique(df[[CONFIG$params$celltype_col]]))
+  result$info$n_celltypes <- n_celltypes
+  
+  if (n_celltypes < 2) {
+    result$warnings <- c(result$warnings, "细胞类型少于2种")
   }
   
-  return(list(
-    output_files = output_files,
-    total_size_mb = total_size / 1024^2
-  ))
+  # 检查缺失值
+  n_missing_celltype <- sum(is.na(df[[CONFIG$params$celltype_col]]))
+  
+  if (n_missing_celltype > 0) {
+    result$warnings <- c(result$warnings, 
+                        sprintf("%d spots 缺少细胞类型信息", n_missing_celltype))
+  }
+  
+  return(result)
 }
 
-cat("✅ 09_save_plots.R 已加载\n")
+cat("✅ 08_validation.R 已加载（简化版）\n")
 ```
 
 ---
 
 ### 08_plot_celltype_utils/10_summary.R
 
-- **大小**: 8.85 KB
-- **修改时间**: 2025-11-07 14:04:35
+- **大小**: 10.73 KB
+- **修改时间**: 2025-11-07 16:19:12
 
 ```r
-#!/usr/bin/env Rscript
 # ===================================================================
-# 汇总统计模块
+# 10_summary.R (简化版)
+# 结果汇总打印模块
+# Author: Assistant
+# Date: 2025-11-07
 # ===================================================================
 
-#' 打印样本汇总
+#' 打印分析完成汇总
 #' 
-#' @param results 结果列表
-#' @param sample_list 样本列表
-#' @param elapsed 耗时
-print_sample_summary <- function(results, sample_list, elapsed) {
+#' @param results_list 结果列表（来自 run_celltype_analysis）
+#' @param CONFIG 配置对象
+#' @param total_elapsed 总耗时（秒）
+#' @param combined_data 合并数据（可选）
+#'
+#' @details
+#' 打印内容：
+#' - 成功/失败样本统计
+#' - 每个样本的详细信息（spots数、high密度、zones数、细胞类型数）
+#' - 总耗时和平均耗时
+#' - 输出文件位置
+#' - 合并数据统计
+#'
+print_analysis_summary <- function(results_list, CONFIG, total_elapsed, combined_data = NULL) {
   
-  n_success <- sum(sapply(results, function(x) x$success))
-  n_failed <- length(results) - n_success
+  n_samples <- length(results_list)
+  n_success <- sum(sapply(results_list, function(x) !is.null(x$stats)))
+  n_failed <- n_samples - n_success
   
   cat("\n")
-  cat("═══════════════════════════════════════════════════════════\n")
-  cat("   样本处理完成\n")
-  cat("═══════════════════════════════════════════════════════════\n\n")
+  cat("╔════════════════════════════════════════════════════════════════╗\n")
+  cat("║                    📊 分析汇总报告                            ║\n")
+  cat("╚════════════════════════════════════════════════════════════════╝\n\n")
   
-  cat(sprintf("✅ 成功: %d/%d (%.1f%%)\n", 
-              n_success, 
-              length(sample_list),
-              100 * n_success / length(sample_list)))
+  # ========================================
+  # 1. 基本统计
+  # ========================================
+  
+  cat("📈 样本处理统计:\n")
+  cat(sprintf("   ✅ 成功: %d/%d (%.1f%%)\n", 
+              n_success, n_samples, 100 * n_success / n_samples))
   
   if (n_failed > 0) {
-    cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, length(sample_list)))
-    cat("失败样本:\n")
-    for (res in results) {
-      if (!res$success) {
-        cat(sprintf("  • %s: %s\n", res$sample, res$error))
-      }
-    }
-    cat("\n")
+    cat(sprintf("   ❌ 失败: %d/%d (%.1f%%)\n", 
+                n_failed, n_samples, 100 * n_failed / n_samples))
   }
   
+  cat(sprintf("   ⏱️  总耗时: %.2f 秒 (%.2f 分钟)\n", 
+              total_elapsed, total_elapsed / 60))
+  
   if (n_success > 0) {
-    cat("成功样本:\n")
-    cat(sprintf("%-30s %8s %7s %8s %7s %8s %7s %10s\n",
-                "样本", "Spots", "High", "High%", "Zones", "Types", "NA", "大小(MB)"))
-    cat(paste(rep("-", 100), collapse = ""), "\n")
+    cat(sprintf("   📊 平均耗时: %.2f 秒/样本\n", total_elapsed / n_samples))
+  }
+  
+  cat("\n")
+  
+  # ========================================
+  # 2. 样本详情表格
+  # ========================================
+  
+  if (n_success > 0) {
+    cat("📋 样本详情:\n")
+    cat(sprintf("%-35s %10s %12s %10s %12s\n",
+                "样本ID", "Spots", "High密度", "Zones", "细胞类型"))
+    cat(paste(rep("─", 80), collapse = ""), "\n")
     
-    total_size <- 0
     total_spots <- 0
+    total_high <- 0
     
-    for (res in results) {
-      if (res$success) {
-        cat(sprintf("%-30s %8d %7d %7.2f%% %7d %8d %7d %10.2f\n",
-                    res$sample,
-                    res$n_spots,
-                    res$n_high,
-                    res$high_pct,
-                    res$n_zones,
-                    res$n_celltypes,
-                    res$n_na_zones,
-                    res$total_size_mb))
+    for (sid in names(results_list)) {
+      res <- results_list[[sid]]
+      
+      if (!is.null(res$stats)) {
+        cat(sprintf("%-35s %10d %12d %10d %12d\n",
+                    substr(sid, 1, 35),  # 限制样本ID长度
+                    res$stats$n_spots,
+                    res$stats$n_high_density,
+                    length(unique(res$zone_composition$density_zone)),
+                    res$stats$n_celltypes))
         
-        total_size <- total_size + res$total_size_mb
-        total_spots <- total_spots + res$n_spots
+        total_spots <- total_spots + res$stats$n_spots
+        total_high <- total_high + res$stats$n_high_density
       }
     }
     
     if (n_success > 1) {
-      cat(paste(rep("-", 100), collapse = ""), "\n")
-      cat(sprintf("%-30s %8d %7s %8s %7s %8s %7s %10.2f\n",
-                  "总计",
-                  total_spots,
-                  "-", "-", "-", "-", "-",
-                  total_size))
+      cat(paste(rep("─", 80), collapse = ""), "\n")
+      cat(sprintf("%-35s %10d %12d %10s %12s\n",
+                  "总计", total_spots, total_high, "-", "-"))
     }
     
     cat("\n")
   }
   
-  cat(sprintf("⏱️  样本处理耗时: %.2f 秒 (平均 %.2f 秒/样本)\n\n", 
-              as.numeric(elapsed),
-              as.numeric(elapsed) / length(sample_list)))
+  # ========================================
+  # 3. 失败样本列表（如果有）
+  # ========================================
+  
+  if (n_failed > 0) {
+    cat("❌ 失败样本:\n")
+    
+    for (sid in names(results_list)) {
+      res <- results_list[[sid]]
+      if (is.null(res$stats)) {
+        cat(sprintf("   • %s: 处理失败\n", sid))
+      }
+    }
+    
+    cat("\n")
+  }
+  
+  # ========================================
+  # 4. 输出文件位置
+  # ========================================
+  
+  cat("📁 输出位置:\n")
+  cat(sprintf("   • 图表目录: %s\n", CONFIG$output$plot_dir))
+  cat(sprintf("   • 数据目录: %s\n", CONFIG$output$data_dir))
+  
+  # 统计文件大小
+  if (dir.exists(CONFIG$output$plot_dir)) {
+    plot_files <- list.files(CONFIG$output$plot_dir, full.names = TRUE, recursive = TRUE)
+    total_plot_size <- sum(file.size(plot_files), na.rm = TRUE) / 1024^2
+    cat(sprintf("   • 图表文件: %d 个 (%.2f MB)\n", 
+                length(plot_files), total_plot_size))
+  }
+  
+  if (dir.exists(CONFIG$output$data_dir)) {
+    data_files <- list.files(CONFIG$output$data_dir, full.names = TRUE, recursive = TRUE)
+    total_data_size <- sum(file.size(data_files), na.rm = TRUE) / 1024^2
+    cat(sprintf("   • 数据文件: %d 个 (%.2f MB)\n", 
+                length(data_files), total_data_size))
+  }
+  
+  cat("\n")
+  
+  # ========================================
+  # 5. 合并数据统计
+  # ========================================
+  
+  if (!is.null(combined_data) && nrow(combined_data) > 0) {
+    cat("📊 合并数据统计:\n")
+    cat(sprintf("   • 总记录数: %d\n", nrow(combined_data)))
+    cat(sprintf("   • 细胞类型: %d 种\n", length(unique(combined_data$celltype_clean))))
+    cat(sprintf("   • 密度区域: %d 个\n", length(unique(combined_data$density_zone))))
+    cat(sprintf("   • 样本数: %d\n", length(unique(combined_data$sample))))
+    
+    # 数据完整性
+    completeness <- 100 * (1 - sum(is.na(combined_data)) / (nrow(combined_data) * ncol(combined_data)))
+    cat(sprintf("   • 数据完整性: %.2f%%\n", completeness))
+    
+    cat("\n")
+  }
+  
+  # ========================================
+  # 6. 结束标志
+  # ========================================
+  
+  cat("╔════════════════════════════════════════════════════════════════╗\n")
+  cat("║                   ✅ 分析完成！                               ║\n")
+  cat("╚════════════════════════════════════════════════════════════════╝\n\n")
   
   invisible(NULL)
 }
 
 
-#' 收集合并数据
+#' 打印简短进度信息
 #' 
-#' @param results 结果列表
-#' @return 合并的数据框
-collect_combined_data <- function(results) {
+#' @param i 当前索引
+#' @param total 总数
+#' @param sample_id 样本ID
+#' @param status 状态（"处理中"/"完成"/"失败"）
+#' @param extra_info 额外信息（可选）
+#'
+print_progress <- function(i, total, sample_id, status = "处理中", extra_info = NULL) {
   
-  combined_data <- data.frame()
+  # 状态图标
+  status_icon <- switch(status,
+    "处理中" = "⏳",
+    "完成" = "✅",
+    "失败" = "❌",
+    "跳过" = "⚠️",
+    "⚪"  # 默认
+  )
   
-  for (res in results) {
-    if (res$success) {
-      combined_data <- dplyr::bind_rows(combined_data, res$zone_composition)
+  # 构建输出
+  output <- sprintf("[%2d/%2d] %s %s", i, total, status_icon, sample_id)
+  
+  if (!is.null(extra_info)) {
+    output <- paste0(output, " - ", extra_info)
+  }
+  
+  cat(output, "\n")
+}
+
+
+#' 打印细胞类型颜色映射
+#' 
+#' @param CONFIG 配置对象（必须包含 CONFIG$colors$celltype）
+#' @param max_display 最多显示的细胞类型数量
+#'
+print_color_mapping <- function(CONFIG, max_display = 10) {
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$celltype)) {
+    cat("⚠️  全局颜色方案未初始化\n")
+    return(invisible(NULL))
+  }
+  
+  celltype_colors <- CONFIG$colors$celltype
+  n_celltypes <- length(celltype_colors)
+  
+  cat("\n🎨 全局细胞类型颜色映射:\n")
+  
+  if (n_celltypes <= max_display) {
+    # 显示所有
+    for (ct in names(celltype_colors)) {
+      cat(sprintf("   • %-30s → %s\n", ct, celltype_colors[ct]))
+    }
+  } else {
+    # 只显示前 max_display 个
+    celltypes_to_show <- names(celltype_colors)[1:max_display]
+    for (ct in celltypes_to_show) {
+      cat(sprintf("   • %-30s → %s\n", ct, celltype_colors[ct]))
+    }
+    cat(sprintf("   ... 还有 %d 个细胞类型\n", n_celltypes - max_display))
+  }
+  
+  cat("\n")
+  
+  invisible(NULL)
+}
+
+
+#' 打印zone颜色映射
+#' 
+#' @param CONFIG 配置对象（必须包含 CONFIG$colors$density_zone）
+#'
+print_zone_colors <- function(CONFIG) {
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$density_zone)) {
+    cat("⚠️  密度区域颜色方案未初始化\n")
+    return(invisible(NULL))
+  }
+  
+  zone_colors <- CONFIG$colors$density_zone
+  
+  cat("\n🎨 密度区域颜色映射:\n")
+  cat("   (Zone_0=核心/高密度 → Zone_N=外围/低密度)\n\n")
+  
+  for (zone in names(zone_colors)) {
+    cat(sprintf("   • %-10s → %s\n", zone, zone_colors[zone]))
+  }
+  
+  cat("\n")
+  
+  invisible(NULL)
+}
+
+
+#' 生成Markdown格式的报告摘要
+#' 
+#' @param results_list 结果列表
+#' @param CONFIG 配置对象
+#' @param total_elapsed 总耗时
+#' @param output_file 输出文件路径（默认在data_dir中）
+#'
+generate_markdown_summary <- function(results_list, CONFIG, total_elapsed, 
+                                     output_file = NULL) {
+  
+  if (is.null(output_file)) {
+    output_file <- file.path(CONFIG$output$data_dir, "analysis_summary.md")
+  }
+  
+  n_samples <- length(results_list)
+  n_success <- sum(sapply(results_list, function(x) !is.null(x$stats)))
+  
+  # 构建Markdown内容
+  md_content <- c(
+    "# 细胞类型密度分布分析报告",
+    "",
+    sprintf("**生成时间**: %s", Sys.time()),
+    sprintf("**分析样本**: %d", n_samples),
+    sprintf("**成功样本**: %d (%.1f%%)", n_success, 100 * n_success / n_samples),
+    sprintf("**总耗时**: %.2f 秒 (%.2f 分钟)", total_elapsed, total_elapsed / 60),
+    "",
+    "## 样本详情",
+    "",
+    "| 样本ID | Spots | High密度 | Zones | 细胞类型 |",
+    "|--------|-------|----------|-------|----------|"
+  )
+  
+  for (sid in names(results_list)) {
+    res <- results_list[[sid]]
+    if (!is.null(res$stats)) {
+      md_content <- c(md_content,
+        sprintf("| %s | %d | %d | %d | %d |",
+                sid,
+                res$stats$n_spots,
+                res$stats$n_high_density,
+                length(unique(res$zone_composition$density_zone)),
+                res$stats$n_celltypes)
+      )
     }
   }
   
-  return(combined_data)
-}
-
-
-#' 生成综合分析
-#' 
-#' @param combined_data 合并数据
-#' @param CONFIG 配置对象
-#' @param seurat_basename 基础名
-#' @param plot_heatmap 是否绘制热图
-#' @param plot_combined 是否绘制综合图
-generate_combined_analysis <- function(combined_data, CONFIG, seurat_basename,
-                                       plot_heatmap, plot_combined) {
-  
-  cat("═══════════════════════════════════════════════════════════\n")
-  cat("   生成综合统计图\n")
-  cat("═══════════════════════════════════════════════════════════\n\n")
-  
-  combined_start <- Sys.time()
-  
-  main_title <- seurat_basename %||% "Seurat Object"
-  
-  # 热图
-  if (plot_heatmap) {
-    cat("📊 生成细胞类型热图...\n")
-    
-    tryCatch({
-      p_heatmap <- plot_combined_heatmap(
-        combined_data = combined_data, 
-        CONFIG = CONFIG
-      ) + ggplot2::ggtitle(main_title)
-      
-      heatmap_file <- file.path(
-        CONFIG$dirs$heatmaps, 
-        "celltype_heatmap_all_samples.pdf"
-      )
-      
-      ggplot2::ggsave(
-        heatmap_file,
-        plot = p_heatmap, 
-        width = 14, 
-        height = 10, 
-        dpi = CONFIG$plot$dpi %||% 300, 
-        bg = "white"
-      )
-      
-      cat(sprintf("   ✅ 保存: %s (%.2f MB)\n", 
-                  basename(heatmap_file),
-                  file.size(heatmap_file) / 1024^2))
-    }, error = function(e) {
-      cat(sprintf("   ⚠️  热图生成失败: %s\n", e$message))
-    })
-  }
-  
-  # 综合分析图
-  if (plot_combined) {
-    cat("📊 生成综合分析图...\n")
-    
-    tryCatch({
-      p_combined <- plot_combined_analysis(
-        combined_data = combined_data, 
-        CONFIG = CONFIG
-      ) + ggplot2::ggtitle(main_title)
-      
-      combined_file <- file.path(
-        CONFIG$dirs$combined, 
-        "combined_analysis.pdf"
-      )
-      
-      ggplot2::ggsave(
-        combined_file,
-        plot = p_combined, 
-        width = 16, 
-        height = 12, 
-        dpi = CONFIG$plot$dpi %||% 300, 
-        bg = "white"
-      )
-      
-      cat(sprintf("   ✅ 保存: %s (%.2f MB)\n", 
-                  basename(combined_file),
-                  file.size(combined_file) / 1024^2))
-    }, error = function(e) {
-      cat(sprintf("   ⚠️  综合图生成失败: %s\n", e$message))
-    })
-  }
-  
-  # 保存数据
-  cat("💾 保存统计数据...\n")
-  
-  composition_csv <- file.path(
-    CONFIG$dirs$composition, 
-    "celltype_composition_all_samples.csv"
+  md_content <- c(md_content,
+    "",
+    "## 输出文件",
+    "",
+    sprintf("- **图表目录**: `%s`", CONFIG$output$plot_dir),
+    sprintf("- **数据目录**: `%s`", CONFIG$output$data_dir),
+    "",
+    "## 参数配置",
+    "",
+    sprintf("- **密度阈值**: %.2f", CONFIG$params$density_threshold_percentile),
+    sprintf("- **区域数量**: %d", CONFIG$params$n_zones),
+    "",
+    "---",
+    "",
+    "*Report generated by 08_plot_celltype.R*"
   )
-  write.csv(combined_data, composition_csv, row.names = FALSE)
-  cat(sprintf("   ✅ 组成数据: %s\n", basename(composition_csv)))
   
-  tryCatch({
-    summary_stats <- generate_summary_statistics(combined_data)
-    summary_csv <- file.path(
-      CONFIG$dirs$composition, 
-      "summary_statistics.csv"
-    )
-    write.csv(summary_stats, summary_csv, row.names = FALSE)
-    cat(sprintf("   ✅ 汇总统计: %s\n", basename(summary_csv)))
-  }, error = function(e) {
-    cat(sprintf("   ⚠️  统计计算失败: %s\n", e$message))
-  })
+  # 写入文件
+  writeLines(md_content, output_file)
   
-  combined_end <- Sys.time()
-  combined_elapsed <- difftime(combined_end, combined_start, units = "secs")
+  cat(sprintf("📝 Markdown报告已保存: %s\n", output_file))
   
-  cat(sprintf("\n⏱️  综合图生成耗时: %.2f 秒\n", as.numeric(combined_elapsed)))
-  
-  invisible(NULL)
+  invisible(output_file)
 }
 
-
-#' 打印最终汇总
-#' 
-#' @param results 结果列表
-#' @param sample_list 样本列表
-#' @param start_time 开始时间
-#' @param combined_data 合并数据
-#' @param plot_overlay 是否绘制叠加图
-#' @param plot_composition 是否绘制组成图
-#' @param plot_heatmap 是否绘制热图
-#' @param plot_combined 是否绘制综合图
-#' @param CONFIG 配置对象
-print_final_summary <- function(results, sample_list, start_time, combined_data,
-                               plot_overlay, plot_composition, plot_heatmap, 
-                               plot_combined, CONFIG) {
-  
-  total_elapsed <- difftime(Sys.time(), start_time, units = "secs")
-  n_success <- sum(sapply(results, function(x) x$success))
-  
-  cat("\n")
-  cat("═══════════════════════════════════════════════════════════\n")
-  cat("   分析完成\n")
-  cat("═══════════════════════════════════════════════════════════\n\n")
-  
-  cat(sprintf("✅ 成功: %d/%d\n", n_success, length(sample_list)))
-  cat(sprintf("⏱️  总耗时: %.2f 秒 (%.2f 分钟)\n", 
-              as.numeric(total_elapsed),
-              as.numeric(total_elapsed) / 60))
-  
-  if (n_success > 0) {
-    cat("\n📊 生成内容:\n")
-    if (plot_overlay) 
-      cat(sprintf("   • 叠加图: %d 个\n", n_success))
-    if (plot_composition) 
-      cat(sprintf("   • 组成图: %d 个\n", n_success))
-    if (plot_heatmap && nrow(combined_data) > 0) 
-      cat("   • 热图: 1 个\n")
-    if (plot_combined && nrow(combined_data) > 0) 
-      cat("   • 综合图: 1 个\n")
-  }
-  
-  cat("\n📁 输出目录:\n")
-  cat(sprintf("   • Overlay:     %s\n", CONFIG$dirs$overlay))
-  cat(sprintf("   • Composition: %s\n", CONFIG$dirs$composition))
-  cat(sprintf("   • Heatmaps:    %s\n", CONFIG$dirs$heatmaps))
-  cat(sprintf("   • Combined:    %s\n", CONFIG$dirs$combined))
-  
-  cat("\n═══════════════════════════════════════════════════════════\n\n")
-  
-  invisible(NULL)
-}
-
-cat("✅ 10_summary.R 已加载\n")
+cat("✅ 10_summary.R 已加载（简化版）\n")
 ```
 
 ---
