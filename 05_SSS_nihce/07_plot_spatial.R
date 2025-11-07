@@ -21,7 +21,7 @@ library(ggplot2)
 #' 
 #' @return 处理结果列表
 #'
-plot_spatial <- function(sample_list,
+plot_spatial_gradient <- function(sample_list,
                         CONFIG,
                         pt_size_factor = 1.6,
                         alpha = 0.8,
