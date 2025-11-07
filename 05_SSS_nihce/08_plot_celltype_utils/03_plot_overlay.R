@@ -34,20 +34,23 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   zone_colors <- CONFIG$colors$zone_colors %||% get_zone_colors(n_zones)
   celltype_colors <- CONFIG$colors$celltype_colors %||% get_celltype_colors(unique(df$celltype_clean))
   
-  # ✅ 关键修复1：确保celltype_clean无NA且都有对应颜色
-  df$celltype_clean[is.na(df$celltype_clean)] <- "Unknown"
+  df$celltype_clean <- as.character(df$celltype_clean)
+  df$celltype_clean[is.na(df$celltype_clean) | df$celltype_clean == ""] <- "Unknown"
   
-  # 获取所有实际存在的细胞类型
-  actual_celltypes <- unique(as.character(df$celltype_clean))
-  
-  # 检查是否所有celltype都有颜色，如果没有则补充
-  missing_types <- setdiff(actual_celltypes, names(celltype_colors))
+  # 确保所有 celltype 都有颜色
+  all_celltypes <- unique(df$celltype_clean)
+  missing_types <- setdiff(all_celltypes, names(celltype_colors))
   if (length(missing_types) > 0) {
-    cat(sprintf("   ⚠️  发现未配色的细胞类型: %s\n", paste(missing_types, collapse=", ")))
-    # 为缺失的类型生成颜色
+    cat(sprintf("   ⚠️  补充颜色: %s\n", paste(missing_types, collapse=", ")))
     extra_colors <- rainbow(length(missing_types))
     names(extra_colors) <- missing_types
     celltype_colors <- c(celltype_colors, extra_colors)
+  }
+  
+  # 打印验证
+  cat("   📊 Celltype 颜色映射:\n")
+  for (ct in sort(all_celltypes)) {
+    cat(sprintf("      %s → %s\n", ct, celltype_colors[ct]))
   }
   
   # ✅ 关键修复2：确保factor水平与颜色表完全一致
@@ -76,21 +79,20 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   col_range_raw <- density_data$col_range
   row_range_raw <- density_data$row_range
   
-  # ✅ 关键修复3：增大边距以确保zone明显溢出
-  expand_margin <- CONFIG$plot$expand_margin %||% 0.1  # 使用配置的边距，默认10%
-  col_margin <- diff(col_range_raw) * expand_margin
-  row_margin <- diff(row_range_raw) * expand_margin
-  
-  # 应用边距
-  col_limits <- c(col_range_raw[1] - col_margin, col_range_raw[2] + col_margin)
-  row_limits <- c(row_range_raw[1] - row_margin, row_range_raw[2] + row_margin)
-  
-  cat(sprintf("   ✅ 原始切片范围: col [%.1f, %.1f], row [%.1f, %.1f]\n",
-              col_range_raw[1], col_range_raw[2], row_range_raw[1], row_range_raw[2]))
-  cat(sprintf("   ✅ 扩展边距: %.0f%%\n", expand_margin * 100))
-  cat(sprintf("   ✅ 添加边距后范围: col [%.1f, %.1f], row [%.1f, %.1f]\n",
-              col_limits[1], col_limits[2], row_limits[1], row_limits[2]))
-  
+  # 使用已经扩展好的范围
+  if (!is.null(density_data$col_range_expanded)) {
+    col_limits <- density_data$col_range_expanded
+    row_limits <- density_data$row_range_expanded
+    expand_margin <- 0  # 已经扩展过了，不需要再扩展
+  } else {
+    # 如果没有扩展范围，则手动扩展
+    expand_margin <- CONFIG$plot$expand_margin %||% 0.1
+    col_margin <- diff(col_range_raw) * expand_margin
+    row_margin <- diff(row_range_raw) * expand_margin
+    col_limits <- c(col_range_raw[1] - col_margin, col_range_raw[2] + col_margin)
+    row_limits <- c(row_range_raw[1] - row_margin, row_range_raw[2] + row_margin)
+  }
+    
   # ========================================
   # 3. 准备等高线数据
   # ========================================
