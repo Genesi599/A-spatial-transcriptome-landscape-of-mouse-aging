@@ -51,10 +51,6 @@ tryCatch({
   source(file.path(utils_dir, "06_plot_combined.R"))
   source(file.path(utils_dir, "07_statistics.R"))
   source(file.path(utils_dir, "10_summary.R"))
-  
-  cat("   ✅ 所有工具已加载\n\n")
-  validate_required_functions()
-  
 }, error = function(e) {
   stop(sprintf("❌ 工具函数加载失败: %s", e$message))
 })
