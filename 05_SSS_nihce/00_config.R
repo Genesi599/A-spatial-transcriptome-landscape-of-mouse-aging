@@ -43,7 +43,7 @@ CONFIG <- list(
   save_full_object = FALSE,
   
   # ===== 缓存参数 =====
-  cache_max_age_hours = 24  # ✅ 缓存有效期（小时），NULL = 永久有效
+  cache_max_age_hours = NULL  # ✅ 缓存有效期（小时），NULL = 永久有效
 )
 
 # ===================================================================
