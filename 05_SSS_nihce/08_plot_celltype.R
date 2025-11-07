@@ -1,14 +1,8 @@
-# 08_plot_celltype.R (多线程并行版 - 修正编码问题)
-
-# ===================================================================
-# 细胞类型 + 等高线分析完整工作流（多线程并行版）
-# Author: Assistant (优化版)
-# Date: 2025-11-07
-# Updated: 2025-11-06 - 添加多线程并行支持
-# ===================================================================
+# 08_plot_celltype.R (多线程并行版 + 进度条 + 内存优化)
 
 library(future)
 library(future.apply)
+library(progressr)
 library(dplyr)
 library(ggplot2)
 library(tibble)
@@ -33,7 +27,7 @@ cat("✅ 已加载所有工具函数\n")
 
 
 # ===================================================================
-# 主函数：细胞类型等高线分析（多线程并行版）
+# 主函数：细胞类型等高线分析（优化内存版）
 # ===================================================================
 
 analyze_celltype_niche <- function(
@@ -51,7 +45,7 @@ analyze_celltype_niche <- function(
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
-  cat("   细胞类型 + Clock Gene Niche 等高线分析（多线程并行）\n")
+  cat("   细胞类型 + Clock Gene Niche 等高线分析（优化内存版）\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
@@ -104,13 +98,42 @@ analyze_celltype_niche <- function(
   cat(sprintf("📊 将分析 %d 个样本\n", length(samples_to_plot)))
   cat(sprintf("📊 等高线分为 %d 个区域 (Zone_0=核心, Zone_%d=外围)\n", 
               density_bins, density_bins - 1))
-  cat(sprintf("🔧 使用 %d 个线程\n\n", CONFIG$n_workers %||% 4))
   
   # ========================================
-  # 3. 准备并行环境
+  # 3. 【关键改进】预先切分样本
   # ========================================
+  cat(sprintf("\n🔧 预处理: 切分 %d 个样本...\n", length(samples_to_plot)))
   
-  # 提取需要的函数名（确保在并行环境中可用）
+  sample_list <- list()
+  for (sample_id in samples_to_plot) {
+    seurat_subset <- subset(seurat_obj, subset = orig.ident == sample_id)
+    
+    if (ncol(seurat_subset) > 0) {
+      sample_list[[sample_id]] <- seurat_subset
+    }
+  }
+  
+  cat(sprintf("✅ 已切分 %d 个样本\n", length(sample_list)))
+  
+  # 计算内存
+  if (length(sample_list) > 0) {
+    avg_size_mb <- object.size(sample_list[[1]]) / 1024^2
+    total_size_mb <- avg_size_mb * length(sample_list)
+    cat(sprintf("💾 单样本大小: %.2f MB, 总计: %.2f MB\n", avg_size_mb, total_size_mb))
+    
+    # 动态调整线程数
+    max_memory_gb <- 100
+    safe_workers <- floor(max_memory_gb * 1024 / (avg_size_mb * 1.5))
+    n_workers <- min(CONFIG$n_workers %||% 4, safe_workers, length(sample_list))
+  } else {
+    n_workers <- CONFIG$n_workers %||% 4
+  }
+  
+  cat(sprintf("🔧 使用 %d 个线程 (根据内存自动调整)\n\n", n_workers))
+  
+  # ========================================
+  # 4. 准备并行环境
+  # ========================================
   required_functions <- c(
     "calculate_density_zones",
     "plot_celltype_density_overlay",
@@ -119,197 +142,218 @@ analyze_celltype_niche <- function(
     "get_zone_colors"
   )
   
-  # 验证函数存在
   missing_funcs <- required_functions[!sapply(required_functions, exists)]
   if (length(missing_funcs) > 0) {
     stop(sprintf("❌ 缺少必需函数: %s", paste(missing_funcs, collapse = ", ")))
   }
   
   # 设置并行
-  plan(multisession, workers = CONFIG$n_workers %||% 4)
+  plan(multisession, workers = n_workers)
   options(future.globals.maxSize = Inf)
   
   start_time <- Sys.time()
   
   # ========================================
-  # 4. 并行处理每个样本
+  # 5. 并行处理（只传递 sample_list）
   # ========================================
   
-  results <- future_lapply(seq_along(samples_to_plot), function(i) {
+  handlers(global = TRUE)
+  handlers("txtprogressbar")
+  
+  with_progress({
+    p <- progressor(steps = length(sample_list))
     
-    sample_id <- samples_to_plot[i]
-    
-    result <- tryCatch({
+    # 【关键】只传递 sample_list
+    results <- future_lapply(names(sample_list), function(sample_id) {
       
-      # -------------------------------
-      # 4.1 提取样本数据
-      # -------------------------------
-      seurat_subset <- subset(seurat_obj, subset = orig.ident == sample_id)
-      
-      if (ncol(seurat_subset) == 0) {
-        return(list(
-          sample = sample_id,
-          index = i,
-          success = FALSE,
-          error = "No data for this sample"
-        ))
-      }
-      
-      # 获取坐标
-      coords <- GetTissueCoordinates(
-        seurat_subset,
-        cols = c("row", "col"),
-        scale = NULL
-      )
-      
-      # 合并数据
-      df <- seurat_subset@meta.data %>%
-        tibble::rownames_to_column("barcode") %>%
-        dplyr::left_join(coords %>% tibble::rownames_to_column("barcode"), by = "barcode") %>%
-        dplyr::filter(!is.na(col), !is.na(row))
-      
-      if (nrow(df) == 0) {
-        return(list(
-          sample = sample_id,
-          index = i,
-          success = FALSE,
-          error = "No valid coordinates"
-        ))
-      }
-      
-      # 检查细胞类型
-      df$celltype_clean <- as.character(df[[celltype_col]])
-      df$celltype_clean[is.na(df$celltype_clean)] <- "Unknown"
-      
-      n_spots <- nrow(df)
-      n_high <- sum(df$ClockGene_High)
-      high_pct <- 100 * mean(df$ClockGene_High)
-      
-      # -------------------------------
-      # 4.2 计算密度并分级
-      # -------------------------------
-      density_data <- calculate_density_zones(
-        df = df,
-        density_bins = density_bins,
-        expand_margin = CONFIG$plot$expand_margin %||% 0.1
-      )
-      
-      if (is.null(density_data)) {
-        return(list(
-          sample = sample_id,
-          index = i,
-          success = FALSE,
-          error = "Density calculation failed"
-        ))
-      }
-      
-      df <- df %>%
-        dplyr::left_join(
-          density_data$spot_zones %>% dplyr::select(col, row, density_zone, density_value),
-          by = c("col", "row")
+      result <- tryCatch({
+        
+        # 从预切分列表获取
+        seurat_subset <- sample_list[[sample_id]]
+        
+        if (ncol(seurat_subset) == 0) {
+          p(message = sprintf("❌ %s - 无数据", sample_id))
+          return(list(
+            sample = sample_id,
+            success = FALSE,
+            error = "No data for this sample"
+          ))
+        }
+        
+        # -------------------------------
+        # 5.1 获取坐标
+        # -------------------------------
+        coords <- GetTissueCoordinates(
+          seurat_subset,
+          cols = c("row", "col"),
+          scale = NULL
         )
-      
-      n_na_zones <- sum(is.na(df$density_zone))
-      
-      # -------------------------------
-      # 4.3 组成计算
-      # -------------------------------
-      zone_composition <- df %>%
-        dplyr::filter(!is.na(density_zone)) %>%
-        dplyr::group_by(density_zone, celltype_clean) %>%
-        dplyr::summarise(count = dplyr::n(), .groups = "drop") %>%
-        dplyr::group_by(density_zone) %>%
-        dplyr::mutate(
-          total = sum(count),
-          percentage = 100 * count / total
-        ) %>%
-        dplyr::ungroup() %>%
-        dplyr::mutate(sample = sample_id)
-      
-      n_zones <- length(unique(zone_composition$density_zone))
-      
-      # -------------------------------
-      # 4.4 绘制叠加图
-      # -------------------------------
-      overlay_file <- NULL
-      if (plot_overlay) {
-        p_overlay <- plot_celltype_density_overlay(
+        
+        # 合并数据
+        df <- seurat_subset@meta.data %>%
+          tibble::rownames_to_column("barcode") %>%
+          dplyr::left_join(coords %>% tibble::rownames_to_column("barcode"), by = "barcode") %>%
+          dplyr::filter(!is.na(col), !is.na(row))
+        
+        if (nrow(df) == 0) {
+          p(message = sprintf("❌ %s - 无有效坐标", sample_id))
+          return(list(
+            sample = sample_id,
+            success = FALSE,
+            error = "No valid coordinates"
+          ))
+        }
+        
+        # 检查细胞类型
+        df$celltype_clean <- as.character(df[[celltype_col]])
+        df$celltype_clean[is.na(df$celltype_clean)] <- "Unknown"
+        
+        n_spots <- nrow(df)
+        n_high <- sum(df$ClockGene_High)
+        high_pct <- 100 * mean(df$ClockGene_High)
+        
+        # -------------------------------
+        # 5.2 计算密度并分级
+        # -------------------------------
+        density_data <- calculate_density_zones(
           df = df,
-          density_data = density_data,
-          sample_id = sample_id,
-          CONFIG = CONFIG
+          density_bins = density_bins,
+          expand_margin = CONFIG$plot$expand_margin %||% 0.1
         )
         
-        safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-        overlay_file <- file.path(
-          CONFIG$dirs$overlay, 
-          sprintf("celltype_overlay_%s.pdf", safe_name)
-        )
+        if (is.null(density_data)) {
+          p(message = sprintf("❌ %s - 密度计算失败", sample_id))
+          return(list(
+            sample = sample_id,
+            success = FALSE,
+            error = "Density calculation failed"
+          ))
+        }
         
-        ggsave(
-          overlay_file,
-          plot = p_overlay,
-          width = 12, height = 10,
-          dpi = CONFIG$plot$dpi %||% 300,
-          bg = "white"
-        )
-      }
-      
-      # -------------------------------
-      # 4.5 绘制组成图
-      # -------------------------------
-      composition_file <- NULL
-      if (plot_composition) {
-        p_comp <- plot_zone_composition(
+        df <- df %>%
+          dplyr::left_join(
+            density_data$spot_zones %>% dplyr::select(col, row, density_zone, density_value),
+            by = c("col", "row")
+          )
+        
+        n_na_zones <- sum(is.na(df$density_zone))
+        
+        # -------------------------------
+        # 5.3 组成计算
+        # -------------------------------
+        zone_composition <- df %>%
+          dplyr::filter(!is.na(density_zone)) %>%
+          dplyr::group_by(density_zone, celltype_clean) %>%
+          dplyr::summarise(count = dplyr::n(), .groups = "drop") %>%
+          dplyr::group_by(density_zone) %>%
+          dplyr::mutate(
+            total = sum(count),
+            percentage = 100 * count / total
+          ) %>%
+          dplyr::ungroup() %>%
+          dplyr::mutate(sample = sample_id)
+        
+        n_zones <- length(unique(zone_composition$density_zone))
+        n_celltypes <- length(unique(zone_composition$celltype_clean))
+        
+        # -------------------------------
+        # 5.4 绘制叠加图
+        # -------------------------------
+        overlay_file <- NULL
+        if (plot_overlay) {
+          p_overlay <- plot_celltype_density_overlay(
+            df = df,
+            density_data = density_data,
+            sample_id = sample_id,
+            CONFIG = CONFIG
+          )
+          
+          safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+          overlay_file <- file.path(
+            CONFIG$dirs$overlay, 
+            sprintf("celltype_overlay_%s.pdf", safe_name)
+          )
+          
+          ggsave(
+            overlay_file,
+            plot = p_overlay,
+            width = 12, height = 10,
+            dpi = CONFIG$plot$dpi %||% 300,
+            bg = "white"
+          )
+        }
+        
+        # -------------------------------
+        # 5.5 绘制组成图
+        # -------------------------------
+        composition_file <- NULL
+        if (plot_composition) {
+          p_comp <- plot_zone_composition(
+            zone_composition = zone_composition,
+            sample_id = sample_id,
+            CONFIG = CONFIG
+          )
+          
+          safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+          composition_file <- file.path(
+            CONFIG$dirs$composition, 
+            sprintf("composition_%s.pdf", safe_name)
+          )
+          
+          ggsave(
+            composition_file,
+            plot = p_comp,
+            width = 12, height = 6,
+            dpi = CONFIG$plot$dpi %||% 300,
+            bg = "white"
+          )
+        }
+        
+        # 计算文件大小
+        total_size <- 0
+        if (!is.null(overlay_file) && file.exists(overlay_file)) {
+          total_size <- total_size + file.size(overlay_file)
+        }
+        if (!is.null(composition_file) && file.exists(composition_file)) {
+          total_size <- total_size + file.size(composition_file)
+        }
+        total_size_mb <- total_size / 1024^2
+        
+        # 更新进度条
+        p(message = sprintf("✅ %s - %d zones, %d types (%.2f MB)", 
+                           sample_id, n_zones, n_celltypes, total_size_mb))
+        
+        # -------------------------------
+        # 5.6 返回结果
+        # -------------------------------
+        return(list(
+          sample = sample_id,
+          success = TRUE,
           zone_composition = zone_composition,
-          sample_id = sample_id,
-          CONFIG = CONFIG
-        )
+          n_spots = n_spots,
+          n_high = n_high,
+          high_pct = high_pct,
+          n_zones = n_zones,
+          n_celltypes = n_celltypes,
+          n_na_zones = n_na_zones,
+          overlay_file = overlay_file,
+          composition_file = composition_file,
+          total_size_mb = total_size_mb
+        ))
         
-        safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-        composition_file <- file.path(
-          CONFIG$dirs$composition, 
-          sprintf("composition_%s.pdf", safe_name)
-        )
-        
-        ggsave(
-          composition_file,
-          plot = p_comp,
-          width = 12, height = 6,
-          dpi = CONFIG$plot$dpi %||% 300,
-          bg = "white"
-        )
-      }
+      }, error = function(e) {
+        p(message = sprintf("❌ %s - %s", sample_id, e$message))
+        return(list(
+          sample = sample_id,
+          success = FALSE,
+          error = e$message
+        ))
+      })
       
-      # -------------------------------
-      # 4.6 返回结果
-      # -------------------------------
-      return(list(
-        sample = sample_id,
-        index = i,
-        success = TRUE,
-        zone_composition = zone_composition,
-        n_spots = n_spots,
-        n_high = n_high,
-        high_pct = high_pct,
-        n_zones = n_zones,
-        n_na_zones = n_na_zones,
-        overlay_file = overlay_file,
-        composition_file = composition_file
-      ))
+      return(result)
       
-    }, error = function(e) {
-      return(list(
-        sample = sample_id,
-        index = i,
-        success = FALSE,
-        error = e$message
-      ))
-    })
-    
-    return(result)
-    
-  }, future.seed = TRUE, future.chunk.size = 1)
+    }, future.seed = TRUE, future.chunk.size = 1)
+  })
   
   end_time <- Sys.time()
   elapsed <- difftime(end_time, start_time, units = "secs")
@@ -318,7 +362,7 @@ analyze_celltype_niche <- function(
   plan(sequential)
   
   # ========================================
-  # 5. 收集和汇总结果
+  # 6. 收集和汇总结果
   # ========================================
   
   success_count <- sum(sapply(results, function(x) x$success))
@@ -331,38 +375,38 @@ analyze_celltype_niche <- function(
   
   cat(sprintf("✅ 成功: %d/%d (%.1f%%)\n", 
               success_count, 
-              length(samples_to_plot),
-              100 * success_count / length(samples_to_plot)))
+              length(sample_list),
+              100 * success_count / length(sample_list)))
   
   if (error_count > 0) {
-    cat(sprintf("❌ 失败: %d/%d\n\n", error_count, length(samples_to_plot)))
+    cat(sprintf("❌ 失败: %d/%d\n\n", error_count, length(sample_list)))
     
     cat("失败的样本:\n")
     for (res in results) {
       if (!res$success) {
-        cat(sprintf("  [%d] %s: %s\n", res$index, res$sample, res$error))
+        cat(sprintf("  %s: %s\n", res$sample, res$error))
       }
     }
     cat("\n")
   }
   
-  # 成功样本详情
   if (success_count > 0) {
     cat("成功分析的样本:\n")
-    cat(sprintf("%-4s %-30s | %6s | %5s | %8s | %6s | %8s\n",
-                "No.", "Sample", "Spots", "High", "High%", "Zones", "NA_Zones"))
-    cat(paste(rep("-", 100), collapse = ""), "\n")
+    cat(sprintf("%-30s | %6s | %5s | %8s | %6s | %6s | %8s | %10s\n",
+                "Sample", "Spots", "High", "High%", "Zones", "Types", "NA_Zones", "Size(MB)"))
+    cat(paste(rep("-", 120), collapse = ""), "\n")
     
     for (res in results) {
       if (res$success) {
-        cat(sprintf("[%2d] %-30s | %6d | %5d | %7.2f%% | %6d | %8d\n",
-                    res$index,
+        cat(sprintf("%-30s | %6d | %5d | %7.2f%% | %6d | %6d | %8d | %10.2f\n",
                     res$sample,
                     res$n_spots,
                     res$n_high,
                     res$high_pct,
                     res$n_zones,
-                    res$n_na_zones))
+                    res$n_celltypes,
+                    res$n_na_zones,
+                    res$total_size_mb))
       }
     }
     cat("\n")
@@ -370,10 +414,10 @@ analyze_celltype_niche <- function(
   
   cat(sprintf("⏱️  样本处理耗时: %.2f 秒 (平均 %.2f 秒/样本)\n\n", 
               as.numeric(elapsed),
-              as.numeric(elapsed) / length(samples_to_plot)))
+              as.numeric(elapsed) / length(sample_list)))
   
   # ========================================
-  # 6. 合并数据并生成综合图
+  # 7. 合并数据并生成综合图
   # ========================================
   
   all_sample_stats <- list()
@@ -394,12 +438,9 @@ analyze_celltype_niche <- function(
     
     combined_start_time <- Sys.time()
     
-    # 设置标题
     main_title <- if (!is.null(seurat_basename)) seurat_basename else "Seurat Object"
     
-    # -------------------------------
-    # 6.1 绘制热图
-    # -------------------------------
+    # 绘制热图
     if (plot_heatmap) {
       cat("📊 生成细胞类型热图...\n")
       
@@ -427,9 +468,7 @@ analyze_celltype_niche <- function(
                   file.size(heatmap_file) / 1024^2))
     }
     
-    # -------------------------------
-    # 6.2 绘制综合分析图
-    # -------------------------------
+    # 绘制综合分析图
     if (plot_combined) {
       cat("📊 生成综合分析图...\n")
       
@@ -457,12 +496,9 @@ analyze_celltype_niche <- function(
                   file.size(combined_file) / 1024^2))
     }
     
-    # -------------------------------
-    # 6.3 保存数据
-    # -------------------------------
+    # 保存数据
     cat("💾 保存统计数据...\n")
     
-    # 组成数据
     composition_csv <- file.path(
       CONFIG$dirs$composition, 
       "celltype_composition_all_samples.csv"
@@ -470,7 +506,6 @@ analyze_celltype_niche <- function(
     write.csv(combined_data, composition_csv, row.names = FALSE)
     cat(sprintf("   ✅ 保存: %s\n", basename(composition_csv)))
     
-    # 汇总统计
     summary_stats <- generate_summary_statistics(combined_data)
     summary_csv <- file.path(
       CONFIG$dirs$composition, 
@@ -486,7 +521,7 @@ analyze_celltype_niche <- function(
   }
   
   # ========================================
-  # 7. 最终总结
+  # 8. 最终总结
   # ========================================
   
   total_time <- difftime(Sys.time(), start_time, units = "secs")
@@ -496,7 +531,7 @@ analyze_celltype_niche <- function(
   cat("   分析完成\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
-  cat(sprintf("✅ 成功分析样本: %d/%d\n", success_count, length(samples_to_plot)))
+  cat(sprintf("✅ 成功分析样本: %d/%d\n", success_count, length(sample_list)))
   cat(sprintf("⏱️  总耗时: %.2f 秒 (%.2f 分钟)\n", 
               as.numeric(total_time),
               as.numeric(total_time) / 60))
@@ -517,14 +552,10 @@ analyze_celltype_niche <- function(
   
   cat("\n═══════════════════════════════════════════════════════════\n\n")
   
-  # ========================================
-  # 8. 返回结果
-  # ========================================
-  
   invisible(list(
     success = success_count,
     failed = error_count,
-    total = length(samples_to_plot),
+    total = length(sample_list),
     elapsed_time = as.numeric(total_time),
     sample_stats = all_sample_stats,
     combined_data = combined_data,
