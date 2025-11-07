@@ -73,6 +73,14 @@ source("13_reporting.R")              # 报告生成
 #' 
 #' @return 处理结果列表
 #'
+#' 处理单个 Seurat 文件（带详细错误追踪）
+#'
+#' @param seurat_path Seurat 文件路径
+#' @param gene_list 基因列表
+#' @param base_config 基础配置
+#' 
+#' @return 处理结果列表
+#'
 process_seurat_file <- function(seurat_path, gene_list, base_config) {
   
   # 1. 更新配置
@@ -86,30 +94,89 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
   
   tryCatch({
     
-    # ----------------------------------------
+    # ========================================
     # 步骤 1-5: 数据准备和分析
-    # ----------------------------------------
+    # ========================================
+    
     cat("\n【步骤 1/9】环境设置\n")
     setup_environment(config)
     
+    # ----------------------------------------
     cat("\n【步骤 2/9】加载 Seurat 对象\n")
     seurat_obj <- load_seurat_object(config)
+    
+    # 🔍 类型检查
+    if (!inherits(seurat_obj, "Seurat")) {
+      stop(sprintf(
+        "步骤2失败: load_seurat_object 返回了 %s 类型（应该是 Seurat）",
+        class(seurat_obj)[1]
+      ))
+    }
+    cat(sprintf("   ✅ 对象类型: %s | 细胞数: %d\n", 
+                class(seurat_obj)[1], ncol(seurat_obj)))
+    
     genes_in_data <- check_gene_overlap(gene_list, seurat_obj)
     
+    # ----------------------------------------
     cat("\n【步骤 3/9】计算 Clock Gene Score\n")
     seurat_obj <- calculate_module_score(seurat_obj, genes_in_data, config)
     
+    # 🔍 类型检查
+    if (!inherits(seurat_obj, "Seurat")) {
+      stop(sprintf(
+        "步骤3失败: calculate_module_score 返回了 %s 类型（应该是 Seurat）",
+        class(seurat_obj)[1]
+      ))
+    }
+    cat(sprintf("   ✅ 对象类型: %s\n", class(seurat_obj)[1]))
+    
+    # ----------------------------------------
     cat("\n【步骤 4/9】识别高表达区域\n")
     result <- define_high_expression(seurat_obj, config)
+    
+    # 🔍 类型检查
+    if (!is.list(result)) {
+      stop(sprintf(
+        "步骤4失败: define_high_expression 返回了 %s 类型（应该是 list）",
+        class(result)[1]
+      ))
+    }
+    
+    if (!"seurat_obj" %in% names(result)) {
+      stop("步骤4失败: 返回结果中缺少 seurat_obj 元素")
+    }
+    
     seurat_obj <- result$seurat_obj
     threshold <- result$threshold
     
-    cat("\n【步骤 5/9】Niche 分析\n")
-    seurat_obj <- perform_niche_analysis(seurat_obj, threshold, config)
+    if (!inherits(seurat_obj, "Seurat")) {
+      stop(sprintf(
+        "步骤4失败: result$seurat_obj 是 %s 类型（应该是 Seurat）",
+        class(seurat_obj)[1]
+      ))
+    }
+    cat(sprintf("   ✅ 对象类型: %s | 阈值: %.3f\n", 
+                class(seurat_obj)[1], threshold))
     
     # ----------------------------------------
+    cat("\n【步骤 5/9】Niche 分析\n")
+    cat(sprintf("   🔍 输入对象类型: %s\n", class(seurat_obj)[1]))
+    
+    seurat_obj <- perform_niche_analysis(seurat_obj, threshold, config)
+    
+    # 🔍 类型检查
+    if (!inherits(seurat_obj, "Seurat")) {
+      stop(sprintf(
+        "步骤5失败: perform_niche_analysis 返回了 %s 类型（应该是 Seurat）",
+        class(seurat_obj)[1]
+      ))
+    }
+    cat(sprintf("   ✅ 返回对象类型: %s\n", class(seurat_obj)[1]))
+    
+    # ========================================
     # 步骤 6: 样本预处理（统一切分）
-    # ----------------------------------------
+    # ========================================
+    
     cat("\n【步骤 6/9】样本预处理\n")
     
     samples <- unique(seurat_obj$orig.ident)
@@ -119,8 +186,19 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
       samples
     }
     
+    cat(sprintf("   🔬 将处理 %d 个样本\n", length(samples_to_plot)))
+    
     # 一次性切分所有样本
     sample_list <- preprocess_samples(seurat_obj, samples_to_plot, config)
+    
+    # 🔍 验证 sample_list
+    if (!is.list(sample_list) || length(sample_list) == 0) {
+      stop(sprintf(
+        "步骤6失败: preprocess_samples 返回了无效的 sample_list (类型: %s, 长度: %d)",
+        class(sample_list)[1], length(sample_list)
+      ))
+    }
+    cat(sprintf("   ✅ 样本列表: %d 个样本\n", length(sample_list)))
     
     # 更新配置中的线程数（基于内存估算）
     recommended_workers <- attr(sample_list, "recommended_workers")
@@ -128,9 +206,10 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
       config$n_workers <- recommended_workers
     }
     
-    # ----------------------------------------
+    # ========================================
     # 步骤 7-9: 可视化分析
-    # ----------------------------------------
+    # ========================================
+    
     cat("\n【步骤 7/9】绘制等高线密度图\n")
     iso_results <- plot_isoheight(
       sample_list = sample_list,
@@ -150,14 +229,16 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
       seurat_basename = seurat_basename
     )
     
-    # ----------------------------------------
+    # ========================================
     # 保存结果
-    # ----------------------------------------
+    # ========================================
+    
     save_results(seurat_obj, config)
     
-    # ----------------------------------------
+    # ========================================
     # 完成
-    # ----------------------------------------
+    # ========================================
+    
     file_end_time <- Sys.time()
     file_elapsed <- difftime(file_end_time, file_start_time, units = "mins")
     
@@ -177,6 +258,101 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
     
   }, error = function(e) {
     
+    # ========================================
+    # 🔴 详细错误追踪
+    # ========================================
+    
+    cat("\n")
+    cat("╔═══════════════════════════════════════════════════════════╗\n")
+    cat("║            🔴 详细错误信息                                 ║\n")
+    cat("╚═══════════════════════════════════════════════════════════╝\n\n")
+    
+    cat(sprintf("📂 文件: %s\n", seurat_basename))
+    cat(sprintf("❌ 错误: %s\n\n", e$message))
+    
+    # 打印错误调用位置
+    if (!is.null(e$call)) {
+      cat("📍 错误调用:\n")
+      call_str <- deparse(e$call)
+      for (line in call_str) {
+        cat(sprintf("   %s\n", line))
+      }
+      cat("\n")
+    }
+    
+    # 🔑 打印完整调用堆栈
+    cat("📚 调用堆栈（最近20层）:\n")
+    cat(paste(rep("─", 70), collapse = ""), "\n")
+    
+    all_calls <- sys.calls()
+    n_calls <- length(all_calls)
+    
+    # 从后往前打印最近的调用
+    start_idx <- max(1, n_calls - 19)
+    for (i in start_idx:n_calls) {
+      call_text <- deparse(all_calls[[i]])[1]
+      
+      # 截断过长的调用
+      if (nchar(call_text) > 100) {
+        call_text <- paste0(substr(call_text, 1, 97), "...")
+      }
+      
+      # 高亮包含 filter 的调用
+      marker <- if (grepl("filter", call_text, ignore.case = TRUE)) {
+        " ⚠️ "
+      } else {
+        "    "
+      }
+      
+      cat(sprintf("%s%2d: %s\n", marker, i, call_text))
+    }
+    
+    cat(paste(rep("─", 70), collapse = ""), "\n\n")
+    
+    # 保存详细日志到文件
+    log_file <- sprintf(
+      "error_detail_%s_%s.txt",
+      seurat_basename,
+      format(Sys.time(), "%Y%m%d_%H%M%S")
+    )
+    
+    tryCatch({
+      sink(log_file)
+      cat("╔═══════════════════════════════════════════════════════════╗\n")
+      cat("║            错误详细信息                                    ║\n")
+      cat("╚═══════════════════════════════════════════════════════════╝\n\n")
+      
+      cat("文件:", seurat_basename, "\n")
+      cat("时间:", format(Sys.time()), "\n")
+      cat("错误消息:", e$message, "\n\n")
+      
+      cat("错误调用:\n")
+      print(e$call)
+      cat("\n")
+      
+      cat("完整堆栈:\n")
+      cat(paste(rep("─", 70), collapse = ""), "\n")
+      for (i in seq_along(all_calls)) {
+        cat(sprintf("%d: %s\n", i, deparse(all_calls[[i]])[1]))
+      }
+      cat(paste(rep("─", 70), collapse = ""), "\n\n")
+      
+      cat("会话信息:\n")
+      print(sessionInfo())
+      
+      sink()
+      
+      cat(sprintf("📝 详细日志已保存: %s\n\n", log_file))
+      
+    }, error = function(log_err) {
+      sink()  # 确保 sink 被关闭
+      cat(sprintf("⚠️  无法保存日志: %s\n\n", log_err$message))
+    })
+    
+    # ========================================
+    # 原有的错误处理
+    # ========================================
+    
     file_end_time <- Sys.time()
     file_elapsed <- difftime(file_end_time, file_start_time, units = "mins")
     
@@ -190,7 +366,9 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
       file = seurat_basename,
       processing_time = as.numeric(file_elapsed),
       n_samples = 0,
-      error = e$message
+      error = e$message,
+      error_call = if (!is.null(e$call)) deparse(e$call) else NULL,
+      log_file = if (exists("log_file")) log_file else NULL
     ))
   })
 }
