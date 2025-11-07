@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # ===================================================================
-# 图形保存模块
+# 图形保存模块（支持串联和并行模式）
 # ===================================================================
 
 #' 处理单个样本
@@ -12,13 +12,13 @@
 #' @param density_bins 密度分区数量
 #' @param plot_overlay 是否绘制叠加图
 #' @param plot_composition 是否绘制组成图
-#' @param progressor 进度条对象
+#' @param progressor 进度条对象（可选，串联模式下为 NULL）
 #' 
 #' @return 处理结果
 process_single_sample <- function(sample_id, sample_list, CONFIG, 
                                   celltype_col, density_bins,
                                   plot_overlay, plot_composition,
-                                  progressor) {
+                                  progressor = NULL) {
   
   tryCatch({
     
@@ -27,7 +27,10 @@ process_single_sample <- function(sample_id, sample_list, CONFIG,
     validation <- validate_sample_data(seurat_subset, sample_id, celltype_col)
     
     if (!validation$valid) {
-      progressor(message = sprintf("⚠️  %s - %s", sample_id, validation$error))
+      # ✅ 只在 progressor 存在时调用
+      if (!is.null(progressor)) {
+        progressor(message = sprintf("⚠️  %s - %s", sample_id, validation$error))
+      }
       return(list(sample = sample_id, success = FALSE, error = validation$error))
     }
     
@@ -46,7 +49,10 @@ process_single_sample <- function(sample_id, sample_list, CONFIG,
     )
     
     if (is.null(density_data)) {
-      progressor(message = sprintf("⚠️  %s - 密度计算失败", sample_id))
+      # ✅ 只在 progressor 存在时调用
+      if (!is.null(progressor)) {
+        progressor(message = sprintf("⚠️  %s - 密度计算失败", sample_id))
+      }
       return(list(sample = sample_id, success = FALSE, error = "Density calculation failed"))
     }
     
@@ -82,8 +88,10 @@ process_single_sample <- function(sample_id, sample_list, CONFIG,
       plot_composition = plot_composition
     )
     
-    # 更新进度
-    progressor(message = sprintf("✅ %s (%.2f MB)", sample_id, plot_result$total_size_mb))
+    # ✅ 只在 progressor 存在时更新进度
+    if (!is.null(progressor)) {
+      progressor(message = sprintf("✅ %s (%.2f MB)", sample_id, plot_result$total_size_mb))
+    }
     
     # 5. 返回结果
     return(list(
@@ -101,7 +109,10 @@ process_single_sample <- function(sample_id, sample_list, CONFIG,
     ))
     
   }, error = function(e) {
-    progressor(message = sprintf("❌ %s - %s", sample_id, e$message))
+    # ✅ 只在 progressor 存在时更新进度
+    if (!is.null(progressor)) {
+      progressor(message = sprintf("❌ %s - %s", sample_id, e$message))
+    }
     return(list(
       sample = sample_id,
       success = FALSE,

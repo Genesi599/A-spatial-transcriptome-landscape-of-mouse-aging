@@ -1,12 +1,9 @@
 #!/usr/bin/env Rscript
 # ===================================================================
-# 细胞类型 Niche 分析模块（简化版 + 进度条）
+# 细胞类型 Niche 分析模块（串联版 - 无并行依赖）
 # 功能：分析不同密度区域的细胞类型分布和富集
 # ===================================================================
 
-library(future)
-library(future.apply)
-library(progressr)
 library(dplyr)
 library(ggplot2)
 library(tibble)
@@ -65,7 +62,7 @@ analyze_celltype_niche <- function(
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
-  cat("   细胞类型 Niche 分析（多线程并行）\n")
+  cat("   细胞类型 Niche 分析\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
@@ -81,130 +78,94 @@ analyze_celltype_niche <- function(
   
   setup_colors(sample_list[[1]], CONFIG, celltype_col, density_bins)
   
-  n_workers <- CONFIG$n_workers %||% 4
-  
-  # ✅ 限制最大线程数
-  n_workers <- min(n_workers, 8)
-  
   cat(sprintf("📊 将分析 %d 个样本\n", length(sample_list)))
   cat(sprintf("📊 密度分区: %d 个区域 (Zone_0=核心, Zone_%d=外围)\n", 
               density_bins, density_bins - 1))
-  cat(sprintf("🔧 使用 %d 个线程\n\n", n_workers))
+  cat(sprintf("🔧 使用串联模式（稳定可靠）\n\n"))
   
-  # ========================================
-  # 3. 设置并行和进度条
-  # ========================================
-
-  # ✅ 禁用 SLURM 检测
-  Sys.setenv(
-    R_FUTURE_PLAN = "multisession",
-    R_FUTURE_FORK_ENABLE = "false",
-    SLURM_JOBID = ""
-  )
-
-  # 设置多线程并行（局部设置，函数结束后可恢复）
-  future::plan(future::multisession, workers = n_workers)
-  options(
-    future.globals.maxSize = Inf,
-    future.availableCores.system = n_workers
-  )
-
-  # ✅ 确保进度条处理器已设置
-  if (is.null(progressr::handlers(NULL))) {
-    progressr::handlers(global = TRUE)
-    cat("✓ 进度条已启用\n")
-  }
-
   start_time <- Sys.time()
   
   # ========================================
-  # 4. 并行处理样本
+  # 3. 串联处理样本
   # ========================================
   
   cat("🔬 开始分析样本...\n\n")
   
-  # ✅ 获取所有需要传递的函数名
-  required_functions <- c(
-    "process_single_sample",
-    "validate_inputs",
-    "validate_required_functions", 
-    "setup_colors",
-    "collect_combined_data",
-    "generate_combined_analysis",
-    "print_sample_summary",
-    "print_final_summary",
-    "%||%"
-  )
+  results <- list()
+  total_samples <- length(sample_list)
   
-  # ✅ 尝试获取所有已加载的工具函数（从 utils_dir）
-  utils_functions <- ls(pattern = "^(create_|plot_|calculate_|get_|assign_|validate_|setup_|collect_|generate_|print_)")
-  
-  progressr::with_progress({
+  for (i in seq_along(sample_list)) {
     
-    p <- progressr::progressor(
-      steps = length(sample_list),
-      message = "分析细胞类型 Niche"
-    )
+    sample_id <- names(sample_list)[i]
     
-    results <- future.apply::future_lapply(
+    cat(sprintf("[%2d/%2d] ", i, total_samples))
+    
+    tryCatch({
       
-      X = names(sample_list),
+      # 调用单样本处理函数
+      result <- process_single_sample(
+        sample_id = sample_id,
+        sample_list = sample_list,
+        CONFIG = CONFIG,
+        celltype_col = celltype_col,
+        density_bins = density_bins,
+        plot_overlay = plot_overlay,
+        plot_composition = plot_composition,
+        progressor = NULL  # 串联模式不需要进度对象
+      )
       
-      FUN = function(sample_id) {
+      results[[sample_id]] <- result
+      
+      # 输出成功信息
+      if (result$success) {
+        cat(sprintf("✅ %s", sample_id))
         
-        process_single_sample(
-          sample_id = sample_id,
-          sample_list = sample_list,
-          CONFIG = CONFIG,
-          celltype_col = celltype_col,
-          density_bins = density_bins,
-          plot_overlay = plot_overlay,
-          plot_composition = plot_composition,
-          progressor = p
-        )
-      },
+        # 添加额外统计信息
+        if (!is.null(result$n_spots)) {
+          cat(sprintf(" (%d spots", result$n_spots))
+          
+          if (!is.null(result$n_high)) {
+            cat(sprintf(", %d high", result$n_high))
+          }
+          
+          if (!is.null(result$n_celltypes)) {
+            cat(sprintf(", %d celltypes", result$n_celltypes))
+          }
+          
+          cat(")")
+        }
+        
+        cat("\n")
+      } else {
+        cat(sprintf("❌ %s - %s\n", sample_id, result$error %||% "Unknown error"))
+      }
       
-      future.seed = TRUE,
-      future.chunk.size = 1,
-      future.packages = c(  # ✅ 添加必要的包
-        "Seurat", 
-        "dplyr", 
-        "ggplot2", 
-        "tibble", 
-        "patchwork",
-        "progressr"
-      ),
-      future.globals = structure(TRUE, add = c(  # ✅ 显式传递对象
-        "p",                        # 进度对象
-        "sample_list",              # 样本列表
-        "CONFIG",                   # 配置对象
-        "celltype_col",             # 参数
-        "density_bins",
-        "plot_overlay",
-        "plot_composition",
-        "process_single_sample",    # 主处理函数
-        required_functions,         # 必需的函数
-        utils_functions             # 工具函数
-      ))
-    )
-  })
+      # 清理内存
+      if (i %% 3 == 0) gc(verbose = FALSE)
+      
+    }, error = function(e) {
+      cat(sprintf("❌ %s - %s\n", sample_id, e$message))
+      results[[sample_id]] <- list(
+        sample = sample_id,
+        success = FALSE,
+        error = as.character(e$message)
+      )
+    })
+  }
   
   end_time <- Sys.time()
   elapsed <- difftime(end_time, start_time, units = "secs")
   
-  # 关闭并行
-  future::plan(future::sequential)
-  
   cat(sprintf("\n⏱️  分析耗时: %.2f 分钟\n", elapsed / 60))
   
   # ========================================
-  # 5. 统计样本处理结果
+  # 4. 统计样本处理结果
   # ========================================
   
   print_sample_summary(results, sample_list, elapsed)
   
   # ========================================
-  # 6. 生成综合分析
+  # 5. 生成综合分析
   # ========================================
   
   combined_data <- collect_combined_data(results)
@@ -220,7 +181,7 @@ analyze_celltype_niche <- function(
   }
   
   # ========================================
-  # 7. 最终总结
+  # 6. 最终总结
   # ========================================
   
   print_final_summary(results, sample_list, start_time, combined_data,
@@ -228,7 +189,7 @@ analyze_celltype_niche <- function(
                      CONFIG)
   
   # ========================================
-  # 8. 返回结果
+  # 7. 返回结果
   # ========================================
   
   n_success <- sum(sapply(results, function(x) x$success))

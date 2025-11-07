@@ -1,12 +1,9 @@
 #!/usr/bin/env Rscript
 # ===================================================================
-# 等高线密度图绘制模块（优化版 - 3线程并行）
-# 功能：多线程并行绘制 Clock Gene 等高线密度图
+# 等高线密度图绘制模块（串联版 - 无并行依赖）
+# 功能：绘制 Clock Gene 等高线密度图
 # ===================================================================
 
-library(future)
-library(future.apply)
-library(progressr)
 library(ggplot2)
 
 
@@ -38,7 +35,7 @@ plot_isoheight <- function(sample_list,
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
-  cat("   等高线密度图绘制（3线程并行）\n")
+  cat("   等高线密度图绘制\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
@@ -67,9 +64,6 @@ plot_isoheight <- function(sample_list,
   size_top <- CONFIG$plot$point_size_top %||% 1.2
   dpi <- CONFIG$plot$dpi %||% 300
   
-  # ✅ 强制限制线程数为3
-  n_workers <- 3
-  
   # 默认色谱
   if (is.null(cols_fill_isoheight)) {
     cols_fill_isoheight <- c(
@@ -78,166 +72,136 @@ plot_isoheight <- function(sample_list,
     )
   }
   
-  cat(sprintf("📊 将绘制 %d 个样本\n", length(sample_list)))
-  cat(sprintf("🔧 使用 %d 个线程\n\n", n_workers))
-  
-  # ========================================
-  # 2. 设置并行环境
-  # ========================================
-  
-  # 禁用 SLURM 检测
-  Sys.setenv(
-    R_FUTURE_PLAN = "multisession",
-    R_FUTURE_FORK_ENABLE = "false",
-    SLURM_JOBID = ""
-  )
-  
-  # 设置并行
-  future::plan(future::multisession, workers = n_workers)
-  options(
-    future.globals.maxSize = Inf,
-    future.availableCores.system = n_workers
-  )
-  
-  # 确保进度条已启用
-  if (is.null(progressr::handlers(NULL))) {
-    progressr::handlers(global = TRUE)
-  }
+  cat(sprintf("📊 将绘制 %d 个样本\n\n", length(sample_list)))
   
   start_time <- Sys.time()
   
   # ========================================
-  # 3. 并行绘图
+  # 2. 串联绘图
   # ========================================
   
   cat("🎨 开始绘图...\n\n")
   
-  progressr::with_progress({
+  success_list <- list()
+  failed_list <- list()
+  total_samples <- length(sample_list)
+  
+  for (i in seq_along(sample_list)) {
     
-    p <- progressr::progressor(steps = length(sample_list))
+    sample_id <- names(sample_list)[i]
     
-    results <- future.apply::future_lapply(
+    cat(sprintf("[%2d/%2d] ", i, total_samples))
+    
+    tryCatch({
       
-      X = names(sample_list),
+      # 获取样本数据
+      seurat_subset <- sample_list[[sample_id]]
       
-      FUN = function(sample_id) {
-        
-        tryCatch({
-          
-          # 获取样本数据
-          seurat_subset <- sample_list[[sample_id]]
-          
-          # 验证数据
-          if (ncol(seurat_subset) == 0) {
-            p(message = sprintf("⚠️  %s - 无数据", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "No data"
-            ))
-          }
-          
-          if (!"ClockGene_High" %in% colnames(seurat_subset@meta.data)) {
-            p(message = sprintf("⚠️  %s - 缺少 ClockGene_High 列", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "Missing ClockGene_High column"
-            ))
-          }
-          
-          n_high <- sum(seurat_subset$ClockGene_High, na.rm = TRUE)
-          
-          if (n_high == 0) {
-            p(message = sprintf("⚠️  %s - 无高表达点", sample_id))
-            return(list(
-              sample = sample_id,
-              success = FALSE,
-              error = "No high expression spots"
-            ))
-          }
-          
-          # 绘图
-          p_iso <- celltype_isoheight_plot(
-            .data = seurat_subset,
-            density_top = ClockGene_High,
-            col_bg = col_bg,
-            col_top = col_top,
-            col_isoheight = col_isoheight,
-            col_white_ratio = col_white_ratio,
-            cols_fill_isoheight = cols_fill_isoheight,
-            size_bg = size_bg,
-            size_top = size_top,
-            nrow = nrow
-          )
-          
-          # 保存
-          safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
-          output_file <- sprintf("ClockGene_isoheight_%s.pdf", safe_name)
-          output_path <- file.path(CONFIG$dirs$isoheight, output_file)
-          
-          ggplot2::ggsave(
-            filename = output_path,
-            plot = p_iso, 
-            width = plot_width, 
-            height = plot_height, 
-            dpi = dpi
-          )
-          
-          # 统计
-          file_size_mb <- file.size(output_path) / 1024^2
-          n_spots <- ncol(seurat_subset)
-          high_pct <- 100 * n_high / n_spots
-          
-          # 更新进度
-          p(message = sprintf("✅ %s (%.2f MB)", sample_id, file_size_mb))
-          
-          return(list(
-            sample = sample_id,
-            success = TRUE,
-            file = output_path,
-            file_size_mb = file_size_mb,
-            n_spots = n_spots,
-            n_high = n_high,
-            high_pct = high_pct
-          ))
-          
-        }, error = function(e) {
-          p(message = sprintf("❌ %s - %s", sample_id, e$message))
-          return(list(
-            sample = sample_id,
-            success = FALSE,
-            error = as.character(e$message)
-          ))
-        })
-      },
+      # 验证数据
+      if (ncol(seurat_subset) == 0) {
+        cat(sprintf("⚠️  %s - 无数据\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "No data"
+        )
+        next
+      }
       
-      future.seed = TRUE,
-      future.chunk.size = 1,
-      future.packages = c("Seurat", "ggplot2", "progressr"),
-      future.globals = structure(TRUE, add = c(
-        "p", "sample_list", "CONFIG",
-        "celltype_isoheight_plot",
-        "col_bg", "col_top", "col_isoheight",
-        "col_white_ratio", "cols_fill_isoheight",
-        "size_bg", "size_top", "nrow",
-        "plot_width", "plot_height", "dpi"
-      ))
-    )
-  })
+      if (!"ClockGene_High" %in% colnames(seurat_subset@meta.data)) {
+        cat(sprintf("⚠️  %s - 缺少 ClockGene_High 列\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "Missing ClockGene_High column"
+        )
+        next
+      }
+      
+      n_high <- sum(seurat_subset$ClockGene_High, na.rm = TRUE)
+      
+      if (n_high == 0) {
+        cat(sprintf("⚠️  %s - 无高表达点\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "No high expression spots"
+        )
+        next
+      }
+      
+      # 绘图
+      p_iso <- celltype_isoheight_plot(
+        .data = seurat_subset,
+        density_top = ClockGene_High,
+        col_bg = col_bg,
+        col_top = col_top,
+        col_isoheight = col_isoheight,
+        col_white_ratio = col_white_ratio,
+        cols_fill_isoheight = cols_fill_isoheight,
+        size_bg = size_bg,
+        size_top = size_top,
+        nrow = nrow
+      )
+      
+      # 保存
+      safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
+      output_file <- sprintf("ClockGene_isoheight_%s.pdf", safe_name)
+      output_path <- file.path(CONFIG$dirs$isoheight, output_file)
+      
+      ggplot2::ggsave(
+        filename = output_path,
+        plot = p_iso, 
+        width = plot_width, 
+        height = plot_height, 
+        dpi = dpi
+      )
+      
+      # 统计
+      file_size_mb <- file.size(output_path) / 1024^2
+      n_spots <- ncol(seurat_subset)
+      high_pct <- 100 * n_high / n_spots
+      
+      # 输出成功信息
+      cat(sprintf("✅ %s (%.2f MB, %d spots, %.1f%% high)\n", 
+                 sample_id, file_size_mb, n_spots, high_pct))
+      
+      success_list[[sample_id]] <- list(
+        sample = sample_id,
+        success = TRUE,
+        file = output_path,
+        file_size_mb = file_size_mb,
+        n_spots = n_spots,
+        n_high = n_high,
+        high_pct = high_pct
+      )
+      
+      # 清理内存
+      rm(seurat_subset, p_iso)
+      if (i %% 3 == 0) gc(verbose = FALSE)
+      
+    }, error = function(e) {
+      cat(sprintf("❌ %s - %s\n", sample_id, e$message))
+      failed_list[[sample_id]] <- list(
+        sample = sample_id,
+        success = FALSE,
+        error = as.character(e$message)
+      )
+    })
+  }
   
   end_time <- Sys.time()
   elapsed <- difftime(end_time, start_time, units = "secs")
   
-  # 关闭并行
-  future::plan(future::sequential)
+  # 合并结果
+  results <- c(success_list, failed_list)
   
   # ========================================
-  # 4. 统计输出
+  # 3. 统计输出
   # ========================================
   
-  n_success <- sum(sapply(results, function(x) x$success))
-  n_failed <- length(results) - n_success
+  n_success <- length(success_list)
+  n_failed <- length(failed_list)
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
@@ -246,16 +210,15 @@ plot_isoheight <- function(sample_list,
   
   cat(sprintf("✅ 成功: %d/%d (%.1f%%)\n", 
               n_success, 
-              length(sample_list),
-              100 * n_success / length(sample_list)))
+              total_samples,
+              100 * n_success / total_samples))
   
   if (n_failed > 0) {
-    cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, length(sample_list)))
+    cat(sprintf("❌ 失败: %d/%d\n\n", n_failed, total_samples))
     cat("失败样本:\n")
-    for (res in results) {
-      if (!res$success) {
-        cat(sprintf("  • %s: %s\n", res$sample, res$error))
-      }
+    for (sample_id in names(failed_list)) {
+      res <- failed_list[[sample_id]]
+      cat(sprintf("  • %s: %s\n", res$sample, res$error))
     }
     cat("\n")
   }
@@ -268,16 +231,15 @@ plot_isoheight <- function(sample_list,
     
     total_file_size <- 0
     
-    for (res in results) {
-      if (res$success) {
-        cat(sprintf("%-30s %10d %10d %9.1f%% %8.2f MB\n",
-                    res$sample,
-                    res$n_spots,
-                    res$n_high,
-                    res$high_pct,
-                    res$file_size_mb))
-        total_file_size <- total_file_size + res$file_size_mb
-      }
+    for (sample_id in names(success_list)) {
+      res <- success_list[[sample_id]]
+      cat(sprintf("%-30s %10d %10d %9.1f%% %8.2f MB\n",
+                  res$sample,
+                  res$n_spots,
+                  res$n_high,
+                  res$high_pct,
+                  res$file_size_mb))
+      total_file_size <- total_file_size + res$file_size_mb
     }
     
     cat(paste(rep("-", 80), collapse = ""), "\n")
@@ -288,18 +250,18 @@ plot_isoheight <- function(sample_list,
   
   cat(sprintf("⏱️  总耗时: %.2f 秒 (平均 %.2f 秒/样本)\n", 
               as.numeric(elapsed),
-              as.numeric(elapsed) / length(sample_list)))
+              as.numeric(elapsed) / total_samples))
   cat(sprintf("📁 输出目录: %s\n", CONFIG$dirs$isoheight))
   cat("\n═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
-  # 5. 返回结果
+  # 4. 返回结果
   # ========================================
   
   return(invisible(list(
     success = n_success,
     failed = n_failed,
-    total = length(sample_list),
+    total = total_samples,
     output_dir = CONFIG$dirs$isoheight,
     elapsed_time = as.numeric(elapsed),
     results = results
