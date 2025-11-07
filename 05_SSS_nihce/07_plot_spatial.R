@@ -73,9 +73,14 @@ plot_spatial_gradient <- function(sample_list,
   # ========================================
   # 4. 并行绘图
   # ========================================
-  
+
   cat("🗺️  开始绘图...\n\n")
-  
+
+  # ✅ 确保进度条处理器已设置
+  if (is.null(progressr::handlers(NULL))) {
+    progressr::handlers(global = TRUE)
+  }
+
   progressr::with_progress({
     
     p <- progressr::progressor(
@@ -85,9 +90,9 @@ plot_spatial_gradient <- function(sample_list,
     
     results <- future.apply::future_lapply(
       
-      names(sample_list),
+      X = names(sample_list),
       
-      function(sample_id) {
+      FUN = function(sample_id) {
         
         tryCatch({
           
@@ -183,7 +188,7 @@ plot_spatial_gradient <- function(sample_list,
           file_size_mb <- file.size(output_path) / 1024^2
           n_spots <- ncol(seurat_subset)
           
-          # 更新进度（显示样本名和文件大小）
+          # ✅ 更新进度（显示样本名和文件大小）
           p(message = sprintf("✅ %s (%.2f MB)", sample_id, file_size_mb))
           
           return(list(
@@ -206,15 +211,30 @@ plot_spatial_gradient <- function(sample_list,
       },
       
       future.seed = TRUE,
-      future.chunk.size = 1
+      future.chunk.size = 1,
+      future.packages = c("Seurat", "ggplot2", "progressr", "viridis"),  # ✅ 添加必要的包
+      future.globals = structure(TRUE, add = c(  # ✅ 显式传递对象
+        "p",                    # 进度对象
+        "sample_list",          # 样本列表
+        "CONFIG",               # 配置对象
+        "pt_size_factor",       # 绘图参数
+        "alpha",
+        "color_option",
+        "color_direction",
+        "plot_width",
+        "plot_height",
+        "dpi"
+      ))
     )
   })
-  
+
   end_time <- Sys.time()
   elapsed <- difftime(end_time, start_time, units = "secs")
-  
+
   # 关闭并行
   future::plan(future::sequential)
+
+  cat(sprintf("\n⏱️  总耗时: %.2f 分钟\n", elapsed / 60))
   
   # ========================================
   # 5. 统计输出

@@ -92,9 +92,14 @@ plot_isoheight <- function(sample_list,
   # ========================================
   # 4. 并行绘图
   # ========================================
-  
+
   cat("🎨 开始绘图...\n\n")
-  
+
+  # ✅ 确保进度条处理器已设置
+  if (is.null(progressr::handlers(NULL))) {
+    progressr::handlers(global = TRUE)
+  }
+
   progressr::with_progress({
     
     p <- progressr::progressor(
@@ -104,9 +109,9 @@ plot_isoheight <- function(sample_list,
     
     results <- future.apply::future_lapply(
       
-      names(sample_list), 
+      X = names(sample_list), 
       
-      function(sample_id) {
+      FUN = function(sample_id) {
         
         tryCatch({
           
@@ -175,7 +180,7 @@ plot_isoheight <- function(sample_list,
           n_spots <- ncol(seurat_subset)
           high_pct <- 100 * n_high / n_spots
           
-          # 更新进度（显示样本名）
+          # ✅ 更新进度（显示样本名）
           p(message = sprintf("✅ %s (%.2f MB)", sample_id, file_size_mb))
           
           return(list(
@@ -199,16 +204,25 @@ plot_isoheight <- function(sample_list,
       },
       
       future.seed = TRUE,
-      future.chunk.size = 1
+      future.chunk.size = 1,
+      future.packages = c("Seurat", "ggplot2", "progressr"),  # ✅ 添加必要的包
+      future.globals = structure(TRUE, add = c("p", "sample_list", "CONFIG",  # ✅ 显式传递对象
+                                                "celltype_isoheight_plot",
+                                                "col_bg", "col_top", "col_isoheight",
+                                                "col_white_ratio", "cols_fill_isoheight",
+                                                "size_bg", "size_top", "nrow",
+                                                "plot_width", "plot_height", "dpi"))
     )
   })
-  
+
   end_time <- Sys.time()
   elapsed <- difftime(end_time, start_time, units = "secs")
-  
+
   # 关闭并行
   future::plan(future::sequential)
-  
+
+  cat(sprintf("\n⏱️  总耗时: %.2f 分钟\n", elapsed / 60))
+    
   # ========================================
   # 5. 统计输出
   # ========================================

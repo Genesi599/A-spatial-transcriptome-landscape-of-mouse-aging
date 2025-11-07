@@ -83,6 +83,9 @@ analyze_celltype_niche <- function(
   
   n_workers <- CONFIG$n_workers %||% 4
   
+  # ✅ 限制最大线程数
+  n_workers <- min(n_workers, 8)
+  
   cat(sprintf("📊 将分析 %d 个样本\n", length(sample_list)))
   cat(sprintf("📊 密度分区: %d 个区域 (Zone_0=核心, Zone_%d=外围)\n", 
               density_bins, density_bins - 1))
@@ -92,14 +95,24 @@ analyze_celltype_niche <- function(
   # 3. 设置并行和进度条
   # ========================================
 
+  # ✅ 禁用 SLURM 检测
+  Sys.setenv(
+    R_FUTURE_PLAN = "multisession",
+    R_FUTURE_FORK_ENABLE = "false",
+    SLURM_JOBID = ""
+  )
+
   # 设置多线程并行（局部设置，函数结束后可恢复）
   future::plan(future::multisession, workers = n_workers)
-  options(future.globals.maxSize = Inf)
+  options(
+    future.globals.maxSize = Inf,
+    future.availableCores.system = n_workers
+  )
 
-  # 进度条已在 setup_parallel() 中全局设置，这里不需要重复配置
-  # 只做检查以确保进度条可用
+  # ✅ 确保进度条处理器已设置
   if (is.null(progressr::handlers(NULL))) {
-    warning("⚠️  未检测到进度条设置，请确保已运行 setup_parallel()")
+    progressr::handlers(global = TRUE)
+    cat("✓ 进度条已启用\n")
   }
 
   start_time <- Sys.time()
@@ -110,6 +123,22 @@ analyze_celltype_niche <- function(
   
   cat("🔬 开始分析样本...\n\n")
   
+  # ✅ 获取所有需要传递的函数名
+  required_functions <- c(
+    "process_single_sample",
+    "validate_inputs",
+    "validate_required_functions", 
+    "setup_colors",
+    "collect_combined_data",
+    "generate_combined_analysis",
+    "print_sample_summary",
+    "print_final_summary",
+    "%||%"
+  )
+  
+  # ✅ 尝试获取所有已加载的工具函数（从 utils_dir）
+  utils_functions <- ls(pattern = "^(create_|plot_|calculate_|get_|assign_|validate_|setup_|collect_|generate_|print_)")
+  
   progressr::with_progress({
     
     p <- progressr::progressor(
@@ -119,9 +148,9 @@ analyze_celltype_niche <- function(
     
     results <- future.apply::future_lapply(
       
-      names(sample_list),
+      X = names(sample_list),
       
-      function(sample_id) {
+      FUN = function(sample_id) {
         
         process_single_sample(
           sample_id = sample_id,
@@ -136,7 +165,27 @@ analyze_celltype_niche <- function(
       },
       
       future.seed = TRUE,
-      future.chunk.size = 1
+      future.chunk.size = 1,
+      future.packages = c(  # ✅ 添加必要的包
+        "Seurat", 
+        "dplyr", 
+        "ggplot2", 
+        "tibble", 
+        "patchwork",
+        "progressr"
+      ),
+      future.globals = structure(TRUE, add = c(  # ✅ 显式传递对象
+        "p",                        # 进度对象
+        "sample_list",              # 样本列表
+        "CONFIG",                   # 配置对象
+        "celltype_col",             # 参数
+        "density_bins",
+        "plot_overlay",
+        "plot_composition",
+        "process_single_sample",    # 主处理函数
+        required_functions,         # 必需的函数
+        utils_functions             # 工具函数
+      ))
     )
   })
   
@@ -145,6 +194,8 @@ analyze_celltype_niche <- function(
   
   # 关闭并行
   future::plan(future::sequential)
+  
+  cat(sprintf("\n⏱️  分析耗时: %.2f 分钟\n", elapsed / 60))
   
   # ========================================
   # 5. 统计样本处理结果
