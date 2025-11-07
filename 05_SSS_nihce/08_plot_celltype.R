@@ -1,27 +1,64 @@
 
 # ===================================================================
-# 08_plot_celltype.R (带调试缓存)
+# 08_plot_celltype.R (带调试缓存 - 完整版)
 # 细胞类型在密度区域中的分布分析（全局统一配色版 + 调试缓存）
-# Author: Assistant | Date: 2025-11-07 | Version: 2.1
+# Author: Assistant | Date: 2025-11-07 | Version: 2.3
 # ===================================================================
 
 cat("🔧 加载 08_plot_celltype.R (带调试缓存)...\n")
 
+# ===================================================================
+# 自动检测script_dir
+# ===================================================================
+
+if (!exists("script_dir")) {
+  # 从当前脚本路径推断
+  current_script <- tryCatch({
+    # 方法1: 使用sys.frame
+    normalizePath(sys.frame(1)$ofile, winslash = "/")
+  }, error = function(e) {
+    # 方法2: 使用commandArgs (适用于Rscript)
+    args <- commandArgs(trailingOnly = FALSE)
+    file_arg <- grep("^--file=", args, value = TRUE)
+    if (length(file_arg) > 0) {
+      sub("^--file=", "", file_arg)
+    } else {
+      # 方法3: 使用当前工作目录
+      file.path(getwd(), "08_plot_celltype.R")
+    }
+  })
+  
+  script_dir <- dirname(current_script)
+  cat(sprintf("   📂 脚本目录: %s\n", script_dir))
+}
+
+# 检查工具函数目录是否存在
+utils_dir <- file.path(script_dir, "08_plot_celltype_utils")
+
+if (!dir.exists(utils_dir)) {
+  stop(sprintf("❌ 工具函数目录不存在: %s\n请确保 08_plot_celltype_utils 文件夹在正确位置", utils_dir))
+}
+
 # 加载工具函数
-source(file.path(script_dir, "08_plot_celltype_utils/00_operators.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/01_color_schemes.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/02_density_zones.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/03_plot_overlay.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/04_plot_composition.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/05_plot_heatmap.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/06_plot_combined.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/07_statistics.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/08_validation.R"))
-source(file.path(script_dir, "08_plot_celltype_utils/10_summary.R"))
-
-cat("✅ 所有工具已加载\n\n")
-
-validate_required_functions()
+cat("   📦 加载工具函数...\n")
+tryCatch({
+  source(file.path(utils_dir, "00_operators.R"))
+  source(file.path(utils_dir, "01_color_schemes.R"))
+  source(file.path(utils_dir, "02_density_zones.R"))
+  source(file.path(utils_dir, "03_plot_overlay.R"))
+  source(file.path(utils_dir, "04_plot_composition.R"))
+  source(file.path(utils_dir, "05_plot_heatmap.R"))
+  source(file.path(utils_dir, "06_plot_combined.R"))
+  source(file.path(utils_dir, "07_statistics.R"))
+  source(file.path(utils_dir, "08_validation.R"))
+  source(file.path(utils_dir, "10_summary.R"))
+  
+  cat("   ✅ 所有工具已加载\n\n")
+  validate_required_functions()
+  
+}, error = function(e) {
+  stop(sprintf("❌ 工具函数加载失败: %s", e$message))
+})
 
 
 # ===================================================================
@@ -35,7 +72,9 @@ validate_required_functions()
 #' @return 缓存key字符串
 #'
 generate_plot_cache_key <- function(sample_id, CONFIG) {
-  require(digest)
+  if (!requireNamespace("digest", quietly = TRUE)) {
+    stop("需要安装 digest 包: install.packages('digest')")
+  }
   
   # 提取影响绘图的关键参数
   key_params <- list(
@@ -43,7 +82,8 @@ generate_plot_cache_key <- function(sample_id, CONFIG) {
     density_threshold = CONFIG$params$density_threshold_percentile,
     n_zones = CONFIG$params$n_zones,
     grid_resolution = CONFIG$params$grid_resolution,
-    celltype_col = CONFIG$params$celltype_col
+    celltype_col = CONFIG$params$celltype_col,
+    version = "v2.3"  # 版本标识，可在逻辑变化时强制更新缓存
   )
   
   cache_key <- digest::digest(key_params, algo = "md5")
@@ -112,6 +152,130 @@ load_plot_cache <- function(sample_id, CONFIG) {
     warning(sprintf("      ⚠️  缓存加载失败: %s", e$message))
     return(NULL)
   })
+}
+
+
+#' 清理过期缓存
+#' 
+#' @param CONFIG 配置对象
+#'
+clean_expired_cache <- function(CONFIG) {
+  
+  if (is.null(CONFIG$cache_dir) || is.null(CONFIG$cache_max_age_hours)) {
+    return(invisible(NULL))
+  }
+  
+  cache_files <- list.files(
+    CONFIG$cache_dir, 
+    pattern = "^celltype_plot_.*\\.rds$", 
+    full.names = TRUE
+  )
+  
+  if (length(cache_files) == 0) {
+    return(invisible(NULL))
+  }
+  
+  current_time <- Sys.time()
+  max_age_secs <- CONFIG$cache_max_age_hours * 3600
+  
+  expired_files <- c()
+  
+  for (cache_file in cache_files) {
+    file_time <- file.info(cache_file)$mtime
+    age_secs <- as.numeric(difftime(current_time, file_time, units = "secs"))
+    
+    if (age_secs > max_age_secs) {
+      expired_files <- c(expired_files, cache_file)
+    }
+  }
+  
+  if (length(expired_files) > 0) {
+    cat(sprintf("   🗑️  清理 %d 个过期缓存文件\n", length(expired_files)))
+    unlink(expired_files)
+  }
+  
+  invisible(expired_files)
+}
+
+
+#' 列出所有缓存文件信息
+#' 
+#' @param CONFIG 配置对象
+#' @return 缓存文件信息数据框
+#'
+list_cache_info <- function(CONFIG) {
+  
+  if (is.null(CONFIG$cache_dir) || !dir.exists(CONFIG$cache_dir)) {
+    cat("❌ 缓存目录不存在\n")
+    return(invisible(NULL))
+  }
+  
+  cache_files <- list.files(
+    CONFIG$cache_dir, 
+    pattern = "^celltype_plot_.*\\.rds$", 
+    full.names = TRUE
+  )
+  
+  if (length(cache_files) == 0) {
+    cat("📂 缓存目录为空\n")
+    return(invisible(NULL))
+  }
+  
+  cache_info <- data.frame(
+    file = basename(cache_files),
+    size_mb = sapply(cache_files, function(f) file.size(f) / 1024^2),
+    modified = sapply(cache_files, function(f) as.character(file.info(f)$mtime)),
+    stringsAsFactors = FALSE
+  )
+  
+  cat(sprintf("📂 缓存文件列表 (%s):\n", CONFIG$cache_dir))
+  print(cache_info)
+  cat(sprintf("\n总计: %d 个文件, %.2f MB\n", 
+              nrow(cache_info), sum(cache_info$size_mb)))
+  
+  return(invisible(cache_info))
+}
+
+
+#' 清除所有celltype绘图缓存
+#' 
+#' @param CONFIG 配置对象
+#' @param confirm 是否需要确认
+#'
+clear_all_cache <- function(CONFIG, confirm = TRUE) {
+  
+  if (is.null(CONFIG$cache_dir) || !dir.exists(CONFIG$cache_dir)) {
+    cat("❌ 缓存目录不存在\n")
+    return(invisible(NULL))
+  }
+  
+  cache_files <- list.files(
+    CONFIG$cache_dir, 
+    pattern = "^celltype_plot_.*\\.rds$", 
+    full.names = TRUE
+  )
+  
+  if (length(cache_files) == 0) {
+    cat("📂 缓存目录为空，无需清理\n")
+    return(invisible(NULL))
+  }
+  
+  total_size_mb <- sum(sapply(cache_files, file.size)) / 1024^2
+  
+  if (confirm) {
+    cat(sprintf("⚠️  将删除 %d 个缓存文件 (%.2f MB)\n", length(cache_files), total_size_mb))
+    response <- readline(prompt = "确认删除? (yes/no): ")
+    
+    if (tolower(trimws(response)) != "yes") {
+      cat("❌ 已取消\n")
+      return(invisible(NULL))
+    }
+  }
+  
+  unlink(cache_files)
+  cat(sprintf("✅ 已删除 %d 个缓存文件\n", length(cache_files)))
+  
+  invisible(cache_files)
 }
 
 
@@ -433,6 +597,11 @@ run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
   cat("║  细胞类型在密度区域中的分布分析                          ║\n")
   cat("╚════════════════════════════════════════════════════════════╝\n")
   
+  # 清理过期缓存
+  if (CONFIG$debug_mode && !is.null(CONFIG$cache_max_age_hours)) {
+    clean_expired_cache(CONFIG)
+  }
+  
   # 显示缓存模式
   if (CONFIG$debug_mode && !is.null(CONFIG$cache_dir)) {
     cat(sprintf("\n🔧 调试模式: 开启\n"))
@@ -540,4 +709,56 @@ run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
 }
 
 
-cat("✅ 08_plot_celltype.R 已加载 (支持调试缓存)\n\n")
+# ===================================================================
+# 主接口函数（兼容原有调用）
+# ===================================================================
+
+#' 细胞类型Niche分析主函数
+#'
+#' @param sample_list 样本列表
+#' @param CONFIG 配置对象
+#' @param seurat_basename Seurat对象基础名称
+#' @return 分析结果
+#'
+analyze_celltype_niche <- function(sample_list, CONFIG, seurat_basename = NULL) {
+  
+  # 提取样本ID
+  sample_ids <- names(sample_list)
+  
+  # 确保输出目录存在
+  if (!dir.exists(CONFIG$output$plot_dir)) {
+    dir.create(CONFIG$output$plot_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  
+  if (!dir.exists(CONFIG$output$data_dir)) {
+    dir.create(CONFIG$output$data_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  
+  # 运行分析
+  results <- run_celltype_analysis(
+    data_list = sample_list,
+    sample_ids = sample_ids,
+    CONFIG = CONFIG
+  )
+  
+  return(results)
+}
+
+
+# ===================================================================
+# 导出可用函数列表
+# ===================================================================
+
+cat("✅ 08_plot_celltype.R 已加载 (支持调试缓存)\n")
+cat("📚 可用函数:\n")
+cat("  主函数:\n")
+cat("    - analyze_celltype_niche(sample_list, CONFIG, seurat_basename)\n")
+cat("    - run_celltype_analysis(data_list, sample_ids, CONFIG)\n")
+cat("  缓存管理:\n")
+cat("    - list_cache_info(CONFIG)           # 列出缓存信息\n")
+cat("    - clear_all_cache(CONFIG)           # 清除所有缓存\n")
+cat("    - clean_expired_cache(CONFIG)       # 清理过期缓存\n")
+cat("  辅助函数:\n")
+cat("    - create_global_color_scheme(data_list, celltype_col, n_zones)\n")
+cat("    - standardize_celltype_names(names, mode, title_case)\n")
+cat("\n")
