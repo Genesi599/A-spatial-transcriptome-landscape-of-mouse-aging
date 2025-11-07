@@ -1,20 +1,7 @@
 # ===================================================================
-# 05_plot_heatmap.R (全局统一配色版)
-# 合并热图绘制
-# Author: Assistant
-# Date: 2025-11-07
+# 05_plot_heatmap.R (完全修复版)
 # ===================================================================
 
-#' 绘制合并热图（所有样本）- 全局统一配色版
-#'
-#' @param combined_data 合并的zone组成数据
-#' @param CONFIG 配置列表（必须包含 CONFIG$colors）
-#'
-#' @return patchwork组合图（zone颜色条 + 热图）
-#'
-#' @examples
-#' p <- plot_combined_heatmap(combined_data, CONFIG)
-#'
 plot_combined_heatmap <- function(combined_data, CONFIG) {
   
   require(ggplot2)
@@ -22,7 +9,7 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
   require(dplyr)
   
   # ========================================
-  # 验证和准备数据（同前）
+  # 1. 验证全局颜色方案
   # ========================================
   
   if (is.null(CONFIG$colors) || is.null(CONFIG$colors$celltype)) {
@@ -48,7 +35,7 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
   cat(sprintf("   密度区域: %d\n", n_zones))
   
   # ========================================
-  # 计算平均百分比（同前）
+  # 2. 计算平均百分比
   # ========================================
   
   heatmap_data <- combined_data %>%
@@ -78,12 +65,12 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
     )
   
   # ========================================
-  # 4. 热图主体
+  # 3. 热图主体
   # ========================================
   
-  p <- ggplot(heatmap_data, 
-              aes(x = density_zone, y = celltype_clean, 
-                  fill = mean_pct)) +
+  p_heatmap <- ggplot(heatmap_data, 
+                      aes(x = density_zone, y = celltype_clean, 
+                          fill = mean_pct)) +
     geom_tile(color = "white", linewidth = 0.8) +
     geom_text(
       aes(label = ifelse(mean_pct > 0.5, 
@@ -105,10 +92,11 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
     ) +
     scale_y_discrete(
       breaks = all_celltypes,
-      drop = FALSE
+      drop = FALSE,
+      expand = c(0, 0)  # ✅ 移除边距
     ) +
     scale_x_discrete(
-      expand = c(0, 0)
+      expand = c(0, 0)  # ✅ 移除边距
     ) +
     labs(
       title = paste0("Cell Type Composition Across Density Zones ",
@@ -136,8 +124,7 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
       ),
       axis.text.y = element_text(
         size = 11, face = "bold",
-        hjust = 1,  # ✅ 右对齐
-        margin = margin(r = 10)  # ✅ 右侧留空间给颜色条
+        hjust = 1
       ),
       axis.title = element_text(size = 12, face = "bold"),
       axis.title.x = element_text(margin = margin(t = 10)),
@@ -149,20 +136,20 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
       panel.border = element_rect(
         color = "gray70", fill = NA, linewidth = 1
       ),
-      plot.margin = margin(15, 15, 15, 15)
+      plot.margin = margin(10, 15, 10, 15)
     )
   
   # ========================================
-  # 5. Zone 颜色参考条（顶部）
+  # 4. Zone 颜色参考条（顶部）- 与热图精确对齐
   # ========================================
   
   zone_bar_data <- data.frame(
     density_zone = factor(zone_levels, levels = zone_levels),
-    y_position = 1
+    y = 1
   )
   
   p_zone_bar <- ggplot(zone_bar_data, 
-                       aes(x = density_zone, y = y_position, 
+                       aes(x = density_zone, y = y, 
                            fill = density_zone)) +
     geom_tile(color = "white", linewidth = 0.8) +
     scale_fill_manual(
@@ -170,58 +157,70 @@ plot_combined_heatmap <- function(combined_data, CONFIG) {
       guide = "none"
     ) +
     scale_x_discrete(
+      expand = c(0, 0)  # ✅ 与热图完全一致
+    ) +
+    scale_y_continuous(
       expand = c(0, 0)
     ) +
-    scale_y_continuous(expand = c(0, 0)) +
     theme_void() +
     theme(
-      axis.text.x = element_blank(),
       plot.margin = margin(0, 0, 0, 0)
     )
   
   # ========================================
-  # 6. 细胞类型颜色参考条（✅ 真正的窄竖条）
+  # 5. 细胞类型颜色参考条（左侧）- 窄竖条
   # ========================================
   
   celltype_bar_data <- data.frame(
     celltype_clean = factor(all_celltypes, levels = all_celltypes),
-    y = seq_along(all_celltypes),
+    y_pos = seq_along(all_celltypes),
     color = celltype_colors_global[all_celltypes]
   )
   
   p_celltype_bar <- ggplot(celltype_bar_data, 
-                           aes(y = y, color = color)) +
-    # ✅ 使用 geom_segment 画窄线条
+                           aes(y = y_pos)) +
     geom_segment(
-      aes(x = 0, xend = 1, yend = y),
-      linewidth = 4  # 线条粗细
+      aes(x = 0.3, xend = 0.7, yend = y_pos, color = color),
+      linewidth = 5
     ) +
     scale_color_identity() +
     scale_y_continuous(
       breaks = seq_along(all_celltypes),
-      labels = NULL,
-      expand = c(0.02, 0)
+      limits = c(0.5, length(all_celltypes) + 0.5),
+      expand = c(0, 0)
     ) +
-    scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
+    scale_x_continuous(
+      limits = c(0, 1),
+      expand = c(0, 0)
+    ) +
     theme_void() +
     theme(
-      axis.text = element_blank(),
-      axis.title = element_blank(),
-      plot.margin = margin(0, 2, 0, 0)  # 右侧留2pt间距
+      plot.margin = margin(0, 0, 0, 0)
     )
   
   # ========================================
-  # 7. 合并图形
+  # 6. 合并图形 - 确保对齐
   # ========================================
   
-  p_blank <- ggplot() + theme_void()
+  # 创建空白占位符
+  p_blank <- ggplot() + 
+    theme_void() + 
+    theme(plot.margin = margin(0, 0, 0, 0))
   
-  p_final <- (p_blank | p_zone_bar) / 
-             (p_celltype_bar | p) + 
+  # 使用 patchwork 精确控制布局
+  p_final <- (p_blank + p_zone_bar) / 
+             (p_celltype_bar + p_heatmap) + 
     plot_layout(
-      widths = c(0.02, 1),    # ✅ 窄条只占2%宽度
-      heights = c(0.04, 1)
-    ) +
+      widths = c(0.03, 1),     # 左侧窄条3%
+      heights = c(0.05, 1),    # 顶部窄条5%
+      guides = "collect"
+    ) &
+    theme(
+      plot.margin = margin(0, 0, 0, 0)
+    )
+  
+  # 添加整体注释
+  p_final <- p_final +
     plot_annotation(
       caption = paste0("Colors are consistent across all samples ",
                        "(global color scheme)"),
@@ -249,5 +248,4 @@ get_zone_colors <- function(n_zones) {
   ))(n_zones)
 }
 
-cat("✅ 05_plot_heatmap.R 已加载（窄竖条版本）\n")
-cat("✅ 05_plot_heatmap.R 已加载（全局统一配色版）\n")
+cat("✅ 05_plot_heatmap.R 已加载（完全修复版）\n")
