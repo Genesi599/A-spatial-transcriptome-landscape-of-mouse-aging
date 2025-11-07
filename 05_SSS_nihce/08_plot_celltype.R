@@ -52,7 +52,7 @@ analyze_celltype_niche <- function(
     sample_list,
     CONFIG,
     density_bins = 10,
-    celltype_col = "predicted.id",
+    celltype_col = "celltype",
     plot_overlay = TRUE,
     plot_composition = TRUE,
     plot_heatmap = TRUE,
