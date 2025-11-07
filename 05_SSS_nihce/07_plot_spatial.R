@@ -1,38 +1,34 @@
 #!/usr/bin/env Rscript
 # ===================================================================
-# 空间梯度图绘制模块（串联版 - 无并行依赖）
-# 功能：绘制 Clock Gene 空间距离梯度图
+# 空间梯度图绘制模块（串联版 - 正方形平铺）
+# 功能：绘制 Clock Gene Score 和 Distance 的空间梯度图
 # ===================================================================
 
 library(Seurat)
 library(ggplot2)
+library(dplyr)
+library(tibble)
+library(patchwork)
+library(RANN)
 
 
-#' 绘制空间梯度图（接收预切分样本）
+#' 绘制空间梯度图（接收预切分样本，正方形平铺）
 #'
 #' @param sample_list 预切分的样本列表（来自 main.R）
 #' @param CONFIG 配置对象
-#' @param pt_size_factor 点大小因子
-#' @param alpha 透明度
-#' @param color_option viridis 色谱选项
-#' @param color_direction 色谱方向
 #' @param plot_width 图宽
 #' @param plot_height 图高
 #' 
 #' @return 处理结果列表
 #'
 plot_spatial_gradient <- function(sample_list,
-                        CONFIG,
-                        pt_size_factor = 1.6,
-                        alpha = 0.8,
-                        color_option = "magma",
-                        color_direction = -1,
-                        plot_width = 10,
-                        plot_height = 8) {
+                                  CONFIG,
+                                  plot_width = 16,
+                                  plot_height = 8) {
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
-  cat("   空间梯度图绘制\n")
+  cat("   空间梯度图绘制（正方形平铺）\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
@@ -53,6 +49,7 @@ plot_spatial_gradient <- function(sample_list,
   }
   
   # 提取参数
+  expand_margin <- CONFIG$plot$expand_margin %||% 0.05
   dpi <- CONFIG$plot$dpi %||% 300
   
   cat(sprintf("📊 将绘制 %d 个样本\n\n", length(sample_list)))
@@ -80,7 +77,9 @@ plot_spatial_gradient <- function(sample_list,
       # 获取样本数据
       seurat_subset <- sample_list[[sample_id]]
       
+      # --------------------------------
       # 验证数据
+      # --------------------------------
       if (ncol(seurat_subset) == 0) {
         cat(sprintf("⚠️  %s - 无数据\n", sample_id))
         failed_list[[sample_id]] <- list(
@@ -91,78 +90,206 @@ plot_spatial_gradient <- function(sample_list,
         next
       }
       
-      if (!"ClockGene_Distance" %in% colnames(seurat_subset@meta.data)) {
-        cat(sprintf("⚠️  %s - 缺少距离数据\n", sample_id))
+      required_cols <- c("ClockGene_Score1", "ClockGene_Distance")
+      missing_cols <- setdiff(required_cols, colnames(seurat_subset@meta.data))
+      
+      if (length(missing_cols) > 0) {
+        cat(sprintf("⚠️  %s - 缺少列: %s\n", sample_id, paste(missing_cols, collapse = ", ")))
         failed_list[[sample_id]] <- list(
           sample = sample_id,
           success = FALSE,
-          error = "Missing ClockGene_Distance column"
+          error = sprintf("Missing columns: %s", paste(missing_cols, collapse = ", "))
         )
         next
       }
       
-      # 检查空间数据
-      if (length(Seurat::Images(seurat_subset)) == 0) {
-        cat(sprintf("⚠️  %s - 无空间图像数据\n", sample_id))
-        failed_list[[sample_id]] <- list(
-          sample = sample_id,
-          success = FALSE,
-          error = "No spatial image data"
-        )
-        next
-      }
-      
-      # 统计距离数据
-      distance_values <- seurat_subset$ClockGene_Distance
-      distance_stats <- list(
-        min = min(distance_values, na.rm = TRUE),
-        max = max(distance_values, na.rm = TRUE),
-        mean = mean(distance_values, na.rm = TRUE),
-        median = median(distance_values, na.rm = TRUE),
-        sd = sd(distance_values, na.rm = TRUE)
+      # --------------------------------
+      # 获取坐标
+      # --------------------------------
+      coords <- GetTissueCoordinates(
+        seurat_subset,
+        cols = c("row", "col"),
+        scale = NULL
       )
       
-      # 绘制空间分布图
-      p_spatial <- Seurat::SpatialFeaturePlot(
-        seurat_subset,
-        features = "ClockGene_Distance",
-        pt.size.factor = pt_size_factor,
-        alpha = alpha,
-        stroke = 0
-      ) + 
-        ggplot2::scale_fill_viridis_c(
-          option = color_option,
-          direction = color_direction,
-          name = "Distance\nto High",
-          limits = c(0, NA)
+      if (!all(c("row", "col") %in% colnames(coords))) {
+        cat(sprintf("⚠️  %s - 坐标列不完整\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "Incomplete coordinate columns"
+        )
+        next
+      }
+      
+      # --------------------------------
+      # 合并数据
+      # --------------------------------
+      plot_data <- seurat_subset@meta.data %>%
+        rownames_to_column("barcode") %>%
+        left_join(coords %>% rownames_to_column("barcode"), by = "barcode") %>%
+        filter(!is.na(col), !is.na(row))
+      
+      if (nrow(plot_data) == 0) {
+        cat(sprintf("⚠️  %s - 无有效坐标\n", sample_id))
+        failed_list[[sample_id]] <- list(
+          sample = sample_id,
+          success = FALSE,
+          error = "No valid coordinates"
+        )
+        next
+      }
+      
+      # --------------------------------
+      # 自动计算正方形大小
+      # --------------------------------
+      if (nrow(plot_data) > 10000) {
+        sample_idx <- sample(nrow(plot_data), 10000)
+        coords_sample <- plot_data[sample_idx, c("col", "row")]
+      } else {
+        coords_sample <- plot_data[, c("col", "row")]
+      }
+      
+      nn_dist <- RANN::nn2(coords_sample, k = 2)$nn.dists[, 2]
+      median_dist <- median(nn_dist, na.rm = TRUE)
+      square_size <- median_dist * 1.0
+      
+      # --------------------------------
+      # 计算坐标范围
+      # --------------------------------
+      col_range <- range(plot_data$col, na.rm = TRUE)
+      row_range <- range(plot_data$row, na.rm = TRUE)
+      
+      col_limits <- col_range
+      row_limits <- row_range
+      
+      # --------------------------------
+      # 统计数据
+      # --------------------------------
+      score_stats <- list(
+        min = min(plot_data$ClockGene_Score1, na.rm = TRUE),
+        max = max(plot_data$ClockGene_Score1, na.rm = TRUE),
+        mean = mean(plot_data$ClockGene_Score1, na.rm = TRUE),
+        median = median(plot_data$ClockGene_Score1, na.rm = TRUE)
+      )
+      
+      distance_stats <- list(
+        min = min(plot_data$ClockGene_Distance, na.rm = TRUE),
+        max = max(plot_data$ClockGene_Distance, na.rm = TRUE),
+        mean = mean(plot_data$ClockGene_Distance, na.rm = TRUE),
+        median = median(plot_data$ClockGene_Distance, na.rm = TRUE)
+      )
+      
+      # --------------------------------
+      # 绘制左图：Clock Gene Score
+      # --------------------------------
+      p_score <- ggplot(plot_data, aes(x = col, y = row)) +
+        geom_tile(
+          aes(fill = ClockGene_Score1),
+          width = square_size,
+          height = square_size,
+          color = NA
         ) +
-        ggplot2::theme_minimal() +
-        ggplot2::theme(
+        scale_fill_gradientn(
+          colors = c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027"),
+          name = "Clock Gene\nScore",
+          na.value = "gray90"
+        ) +
+        scale_x_continuous(
+          limits = col_limits,
+          expand = c(0, 0)
+        ) +
+        scale_y_reverse(
+          limits = rev(row_limits),
+          expand = c(0, 0)
+        ) +
+        coord_fixed(
+          ratio = 1,
+          xlim = col_limits,
+          ylim = rev(row_limits),
+          clip = "on"
+        ) +
+        ggtitle(
+          "Clock Gene Score",
+          subtitle = sprintf("Mean: %.3f | Median: %.3f", 
+                           score_stats$mean, score_stats$median)
+        ) +
+        theme_void() +
+        theme(
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+          plot.subtitle = element_text(hjust = 0.5, size = 10),
           legend.position = "right",
-          legend.title = ggplot2::element_text(size = 12, face = "bold"),
-          legend.text = ggplot2::element_text(size = 10),
-          plot.title = ggplot2::element_text(size = 14, face = "bold", hjust = 0.5),
-          plot.subtitle = ggplot2::element_text(size = 10, hjust = 0.5)
+          legend.title = element_text(size = 10, face = "bold"),
+          legend.text = element_text(size = 8),
+          plot.margin = margin(10, 10, 10, 10)
+        )
+      
+      # --------------------------------
+      # 绘制右图：Distance
+      # --------------------------------
+      p_distance <- ggplot(plot_data, aes(x = col, y = row)) +
+        geom_tile(
+          aes(fill = ClockGene_Distance),
+          width = square_size,
+          height = square_size,
+          color = NA
         ) +
-        ggplot2::ggtitle(
-          sprintf("Clock Gene Distance Field - %s", sample_id),
-          subtitle = sprintf(
-            "Mean: %.2f | Median: %.2f | Range: [%.2f, %.2f]",
-            distance_stats$mean,
-            distance_stats$median,
-            distance_stats$min,
-            distance_stats$max
+        scale_fill_gradientn(
+          colors = rev(c("#313695", "#4575b4", "#abd9e9", "#fee090", "#f46d43", "#d73027")),
+          name = "Distance to\nHigh Score\nRegion",
+          na.value = "gray90"
+        ) +
+        scale_x_continuous(
+          limits = col_limits,
+          expand = c(0, 0)
+        ) +
+        scale_y_reverse(
+          limits = rev(row_limits),
+          expand = c(0, 0)
+        ) +
+        coord_fixed(
+          ratio = 1,
+          xlim = col_limits,
+          ylim = rev(row_limits),
+          clip = "on"
+        ) +
+        ggtitle(
+          "Distance to High Score Region",
+          subtitle = sprintf("Mean: %.2f | Median: %.2f", 
+                           distance_stats$mean, distance_stats$median)
+        ) +
+        theme_void() +
+        theme(
+          plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+          plot.subtitle = element_text(hjust = 0.5, size = 10),
+          legend.position = "right",
+          legend.title = element_text(size = 10, face = "bold"),
+          legend.text = element_text(size = 8),
+          plot.margin = margin(10, 10, 10, 10)
+        )
+      
+      # --------------------------------
+      # 合并图形
+      # --------------------------------
+      p_combined <- (p_score | p_distance) +
+        plot_annotation(
+          title = sprintf("Clock Gene Niche Analysis - %s", sample_id),
+          theme = theme(
+            plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+            plot.margin = margin(10, 10, 10, 10)
           )
         )
       
+      # --------------------------------
       # 保存图形
+      # --------------------------------
       safe_name <- gsub("[^[:alnum:]]", "_", sample_id)
       output_file <- sprintf("ClockGene_spatial_%s.pdf", safe_name)
       output_path <- file.path(CONFIG$dirs$spatial, output_file)
       
-      ggplot2::ggsave(
+      ggsave(
         filename = output_path,
-        plot = p_spatial,
+        plot = p_combined,
         width = plot_width,
         height = plot_height,
         dpi = dpi
@@ -170,12 +297,14 @@ plot_spatial_gradient <- function(sample_list,
       
       # 统计信息
       file_size_mb <- file.size(output_path) / 1024^2
-      n_spots <- ncol(seurat_subset)
+      n_spots <- nrow(plot_data)
       
       # 输出成功信息
-      cat(sprintf("✅ %s (%.2f MB, %d spots, dist: %.2f±%.2f)\n", 
-                 sample_id, file_size_mb, n_spots, 
-                 distance_stats$mean, distance_stats$sd))
+      cat(sprintf("✅ %s (%d spots, score: %.3f±%.3f, dist: %.2f±%.2f, %.2f MB)\n", 
+                 sample_id, n_spots, 
+                 score_stats$mean, sd(plot_data$ClockGene_Score1, na.rm = TRUE),
+                 distance_stats$mean, sd(plot_data$ClockGene_Distance, na.rm = TRUE),
+                 file_size_mb))
       
       success_list[[sample_id]] <- list(
         sample = sample_id,
@@ -183,11 +312,12 @@ plot_spatial_gradient <- function(sample_list,
         file = output_path,
         file_size_mb = file_size_mb,
         n_spots = n_spots,
+        score_stats = score_stats,
         distance_stats = distance_stats
       )
       
       # 清理内存
-      rm(seurat_subset, p_spatial)
+      rm(seurat_subset, plot_data, p_score, p_distance, p_combined)
       if (i %% 3 == 0) gc(verbose = FALSE)
       
     }, error = function(e) {
@@ -236,18 +366,18 @@ plot_spatial_gradient <- function(sample_list,
   if (n_success > 0) {
     cat("成功样本:\n")
     cat(sprintf("%-30s %10s %12s %12s %10s\n", 
-                "样本", "Spots", "Mean Dist", "SD Dist", "文件大小"))
+                "样本", "Spots", "Mean Score", "Mean Dist", "文件大小"))
     cat(paste(rep("-", 80), collapse = ""), "\n")
     
     total_file_size <- 0
     
     for (sample_id in names(success_list)) {
       res <- success_list[[sample_id]]
-      cat(sprintf("%-30s %10d %12.2f %12.2f %8.2f MB\n",
+      cat(sprintf("%-30s %10d %12.3f %12.2f %8.2f MB\n",
                   res$sample,
                   res$n_spots,
+                  res$score_stats$mean,
                   res$distance_stats$mean,
-                  res$distance_stats$sd,
                   res$file_size_mb))
       total_file_size <- total_file_size + res$file_size_mb
     }
@@ -262,6 +392,8 @@ plot_spatial_gradient <- function(sample_list,
               as.numeric(elapsed),
               as.numeric(elapsed) / total_samples))
   cat(sprintf("📁 输出目录: %s\n", CONFIG$dirs$spatial))
+  cat("📐 使用正方形平铺 (geom_tile)\n")
+  cat("🔄 Y轴已反转以匹配 Isoheight 图\n")
   cat("\n═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================

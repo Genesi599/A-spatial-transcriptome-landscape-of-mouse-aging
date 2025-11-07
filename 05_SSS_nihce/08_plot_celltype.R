@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # ===================================================================
-# 细胞类型 Niche 分析模块（串联版 - 无并行依赖）
+# 细胞类型 Niche 分析模块（串联版 - 全局统一配色）
 # 功能：分析不同密度区域的细胞类型分布和富集
 # ===================================================================
 
@@ -31,7 +31,7 @@ cat("✅ 已加载所有工具函数\n")
 
 
 # ===================================================================
-# 主函数：细胞类型 Niche 分析
+# 主函数：细胞类型 Niche 分析（全局统一配色版）
 # ===================================================================
 
 #' 细胞类型 Niche 分析
@@ -62,7 +62,7 @@ analyze_celltype_niche <- function(
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
-  cat("   细胞类型 Niche 分析\n")
+  cat("   细胞类型 Niche 分析（全局统一配色）\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
@@ -73,20 +73,49 @@ analyze_celltype_niche <- function(
   validate_required_functions()
   
   # ========================================
-  # 2. 初始化配置
+  # 2. ✅ 生成全局统一颜色方案
   # ========================================
   
-  setup_colors(sample_list[[1]], CONFIG, celltype_col, density_bins)
+  cat("🎨 初始化全局颜色方案...\n")
+  
+  tryCatch({
+    
+    # 生成全局颜色方案
+    color_scheme <- create_global_color_scheme(
+      sample_list = sample_list,
+      celltype_col = celltype_col,
+      density_bins = density_bins
+    )
+    
+    # 保存到 CONFIG
+    CONFIG$colors <- color_scheme
+    
+    # 验证颜色方案
+    if (!validate_color_scheme(color_scheme)) {
+      stop("颜色方案验证失败")
+    }
+    
+    cat("✅ 全局颜色方案初始化完成\n\n")
+    
+  }, error = function(e) {
+    stop(sprintf("❌ 颜色方案生成失败: %s", e$message))
+  })
+  
+  # ========================================
+  # 3. 打印分析信息
+  # ========================================
   
   cat(sprintf("📊 将分析 %d 个样本\n", length(sample_list)))
   cat(sprintf("📊 密度分区: %d 个区域 (Zone_0=核心, Zone_%d=外围)\n", 
               density_bins, density_bins - 1))
+  cat(sprintf("🎨 细胞类型: %d 个独特类型（所有图表使用统一配色）\n", 
+              CONFIG$colors$n_celltypes))
   cat(sprintf("🔧 使用串联模式（稳定可靠）\n\n"))
   
   start_time <- Sys.time()
   
   # ========================================
-  # 3. 串联处理样本
+  # 4. 串联处理样本
   # ========================================
   
   cat("🔬 开始分析样本...\n\n")
@@ -102,11 +131,11 @@ analyze_celltype_niche <- function(
     
     tryCatch({
       
-      # 调用单样本处理函数
+      # 调用单样本处理函数（会使用 CONFIG$colors）
       result <- process_single_sample(
         sample_id = sample_id,
         sample_list = sample_list,
-        CONFIG = CONFIG,
+        CONFIG = CONFIG,  # ✅ 包含全局颜色方案
         celltype_col = celltype_col,
         density_bins = density_bins,
         plot_overlay = plot_overlay,
@@ -159,21 +188,27 @@ analyze_celltype_niche <- function(
   cat(sprintf("\n⏱️  分析耗时: %.2f 分钟\n", elapsed / 60))
   
   # ========================================
-  # 4. 统计样本处理结果
+  # 5. 统计样本处理结果
   # ========================================
   
   print_sample_summary(results, sample_list, elapsed)
   
   # ========================================
-  # 5. 生成综合分析
+  # 6. 生成综合分析（使用统一配色）
   # ========================================
   
   combined_data <- collect_combined_data(results)
   
   if (nrow(combined_data) > 0) {
+    
+    cat("\n")
+    cat("═══════════════════════════════════════════════════════════\n")
+    cat("   综合分析（跨样本）\n")
+    cat("═══════════════════════════════════════════════════════════\n\n")
+    
     generate_combined_analysis(
       combined_data = combined_data,
-      CONFIG = CONFIG,
+      CONFIG = CONFIG,  # ✅ 包含全局颜色方案
       seurat_basename = seurat_basename,
       plot_heatmap = plot_heatmap,
       plot_combined = plot_combined
@@ -181,7 +216,7 @@ analyze_celltype_niche <- function(
   }
   
   # ========================================
-  # 6. 最终总结
+  # 7. 最终总结
   # ========================================
   
   print_final_summary(results, sample_list, start_time, combined_data,
@@ -189,7 +224,7 @@ analyze_celltype_niche <- function(
                      CONFIG)
   
   # ========================================
-  # 7. 返回结果
+  # 8. 返回结果
   # ========================================
   
   n_success <- sum(sapply(results, function(x) x$success))
@@ -201,6 +236,7 @@ analyze_celltype_niche <- function(
     total = length(sample_list),
     elapsed_time = as.numeric(difftime(Sys.time(), start_time, units = "secs")),
     combined_data = combined_data,
+    color_scheme = CONFIG$colors,  # ✅ 返回颜色方案
     results = results
   )))
 }
@@ -214,4 +250,4 @@ if (!exists("%||%")) {
   `%||%` <- function(a, b) if (is.null(a)) b else a
 }
 
-cat("✅ 08_plot_celltype.R 已加载\n")
+cat("✅ 08_plot_celltype.R 已加载（全局统一配色版）\n")

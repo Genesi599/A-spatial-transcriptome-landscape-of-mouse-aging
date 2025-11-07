@@ -1,21 +1,19 @@
 # ===================================================================
-# 03_plot_overlay.R (修复版)
+# 03_plot_overlay.R (全局统一配色版)
 # 细胞类型+密度叠加图（使用raster，无网格线）
-# Author: Assistant (Fixed Version)
+# Author: Assistant (Global Color Scheme)
 # Date: 2025-11-07
 # ===================================================================
 
-#' 绘制细胞类型和密度区域叠加图
+#' 绘制细胞类型和密度区域叠加图（全局统一配色版）
 #'
 #' @param df 数据框，包含细胞类型和坐标信息
 #' @param density_data 密度计算结果（来自 calculate_density_zones）
 #' @param sample_id 样本ID
-#' @param CONFIG 配置列表
+#' @param CONFIG 配置列表（必须包含 CONFIG$colors）
 #'
 #' @return ggplot对象
 #'
-
-
 plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   
   require(ggplot2)
@@ -24,39 +22,70 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   require(RANN)
   
   # ========================================
-  # 1. 准备数据
+  # 1. 验证全局颜色方案
   # ========================================
+  
+  if (is.null(CONFIG$colors) || is.null(CONFIG$colors$celltype)) {
+    stop("❌ 全局颜色方案未初始化，请先调用 create_global_color_scheme()")
+  }
+  
+  if (is.null(CONFIG$colors$density_zone)) {
+    stop("❌ 密度区域颜色未初始化")
+  }
+  
+  # ========================================
+  # 2. 准备数据
+  # ========================================
+  
+  # 获取全局颜色方案
+  celltype_colors_global <- CONFIG$colors$celltype
+  zone_colors_global <- CONFIG$colors$density_zone
   
   n_zones <- length(unique(density_data$grid$density_zone))
   zone_levels <- sprintf("Zone_%d", 0:(n_zones - 1))
-  zone_colors <- CONFIG$colors$zone_colors %||% get_zone_colors(n_zones)
   
   # 清理 celltype
   df$celltype_clean <- as.character(df$celltype_clean)
   df$celltype_clean[is.na(df$celltype_clean) | df$celltype_clean == ""] <- "Unknown"
-  all_celltypes <- sort(unique(df$celltype_clean))
   
-  # 获取配置的颜色
-  celltype_colors <- CONFIG$colors$celltype_colors
+  # ✅ 获取当前样本的细胞类型（可能是全局的子集）
+  sample_celltypes <- sort(unique(df$celltype_clean))
   
-  # 确保所有类型都有颜色
-  missing_types <- setdiff(all_celltypes, names(celltype_colors))
+  # ✅ 检查是否有未知细胞类型
+  missing_types <- setdiff(sample_celltypes, names(celltype_colors_global))
   if (length(missing_types) > 0) {
-    extra_colors <- rainbow(length(missing_types))
+    warning(sprintf("样本 %s 包含未在全局颜色方案中的细胞类型: %s",
+                   sample_id, paste(missing_types, collapse = ", ")))
+    # 为缺失类型分配灰色
+    extra_colors <- rep("#CCCCCC", length(missing_types))
     names(extra_colors) <- missing_types
-    celltype_colors <- c(celltype_colors, extra_colors)
+    celltype_colors_global <- c(celltype_colors_global, extra_colors)
   }
   
-  # 只保留实际存在的类型，并确保顺序一致
-  celltype_colors <- celltype_colors[all_celltypes]
+  # ✅ 使用全局颜色（保留所有细胞类型，即使当前样本没有）
+  celltype_colors <- celltype_colors_global
+  all_celltypes <- names(celltype_colors)  # 全局所有细胞类型
   
-  cat("   📊 Celltype 颜色映射:\n")
-  for (ct in all_celltypes) {
-    cat(sprintf("      %s → %s\n", ct, celltype_colors[ct]))
+  cat(sprintf("   📊 当前样本细胞类型: %d 个 (全局: %d 个)\n", 
+              length(sample_celltypes), length(all_celltypes)))
+  
+  # 只打印当前样本的颜色映射
+  if (length(sample_celltypes) <= 10) {
+    cat("   📊 当前样本细胞类型颜色:\n")
+    for (ct in sample_celltypes) {
+      cat(sprintf("      • %-25s → %s\n", ct, celltype_colors[ct]))
+    }
+  } else {
+    cat("   📊 当前样本细胞类型颜色（前10个）:\n")
+    for (i in 1:min(10, length(sample_celltypes))) {
+      ct <- sample_celltypes[i]
+      cat(sprintf("      • %-25s → %s\n", ct, celltype_colors[ct]))
+    }
+    cat(sprintf("      ... 还有 %d 个细胞类型\n", length(sample_celltypes) - 10))
   }
   
   # ========================================
-  # 2. 坐标范围
+  # 3. 坐标范围
   # ========================================
   
   col_range_raw <- density_data$col_range
@@ -77,7 +106,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
               col_limits[1], col_limits[2], row_limits[1], row_limits[2]))
   
   # ========================================
-  # 3. 准备等高线数据
+  # 4. 准备等高线数据
   # ========================================
   
   zone_density_ranges <- density_data$grid %>%
@@ -100,13 +129,14 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     mutate(density_zone = factor(density_zone, levels = zone_levels))
   
   # ========================================
-  # 4. 准备细胞数据
+  # 5. 准备细胞数据
   # ========================================
   
   df_filtered <- df %>% 
     filter(!is.na(density_zone)) %>%
     mutate(
       density_zone = factor(density_zone, levels = zone_levels),
+      # ✅ 使用全局所有细胞类型作为 factor levels
       celltype_clean = factor(celltype_clean, levels = all_celltypes)
     )
   
@@ -134,7 +164,7 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
   legend_title_size <- 11
   
   # ========================================
-  # 5. 绘图
+  # 6. 绘图
   # ========================================
   
   p <- ggplot() +
@@ -143,23 +173,23 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
     # ========================================
     geom_tile(
       data = df_filtered,
-      aes(x = col, y = row, fill = celltype_clean),  # ✅ 使用 fill
+      aes(x = col, y = row, fill = celltype_clean),
       width = square_size,
       height = square_size,
-      color = NA,  # ✅ 不要边框
+      color = NA,
       alpha = 1
     ) +
     scale_fill_manual(
-      values = celltype_colors,  # ✅ 必须是命名向量
+      values = celltype_colors,  # ✅ 使用全局颜色
       name = "Cell Type",
-      breaks = all_celltypes,
-      drop = TRUE,
+      breaks = all_celltypes,  # ✅ 显示所有细胞类型
+      drop = FALSE,  # ✅ 不丢弃未使用的级别
       na.value = "gray50",
       guide = guide_legend(
         order = 2,
         override.aes = list(
           alpha = 1,
-          color = NA  # ✅ 图例中也不要边框
+          color = NA
         ),
         title.position = "top",
         title.hjust = 0,
@@ -183,9 +213,9 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       interpolate = TRUE
     ) +
     scale_fill_manual(
-      values = zone_colors,
+      values = zone_colors_global,  # ✅ 使用全局区域颜色
       labels = zone_labels,
-      name = "Density Zones\n(Zone_0 = Core Red → Zone_9 = Outer Blue)",
+      name = "Density Zones\n(Zone_0 = Core Red → Zone_N = Outer Blue)",
       breaks = zone_levels,
       na.value = "transparent",
       drop = FALSE,
@@ -263,11 +293,32 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
 }
 
 # ========================================
-# 辅助函数
+# 辅助函数（向后兼容）
 # ========================================
 
-#' 生成 zone 颜色（红到蓝渐变）
+#' 生成等高线颜色（紫色渐变）
+#' 
+#' @param n_contours 等高线数量
+#' @return 颜色向量
+#'
+get_contour_colors <- function(n_contours) {
+  colorRampPalette(c(
+    "#542788",  # 深紫
+    "#8073AC",  # 中紫
+    "#B2ABD2",  # 浅紫
+    "#D8DAEB"   # 淡紫
+  ))(n_contours)
+}
+
+
+# ========================================
+# ⚠️ 以下函数已弃用，请使用 01_color_schemes.R 中的函数
+# ========================================
+
+#' @deprecated 请使用 get_zone_colors() from 01_color_schemes.R
 get_zone_colors <- function(n_zones) {
+  warning("get_zone_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
   colorRampPalette(c(
     "#B2182B",  # 深红（核心高密度）
     "#EF8A62",  # 浅红
@@ -279,18 +330,10 @@ get_zone_colors <- function(n_zones) {
   ))(n_zones)
 }
 
-#' 生成等高线颜色（紫色渐变）
-get_contour_colors <- function(n_contours) {
-  colorRampPalette(c(
-    "#542788",  # 深紫
-    "#8073AC",  # 中紫
-    "#B2ABD2",  # 浅紫
-    "#D8DAEB"   # 淡紫
-  ))(n_contours)
-}
-
-#' 为细胞类型生成颜色
+#' @deprecated 请使用 get_celltype_colors() from 01_color_schemes.R
 get_celltype_colors <- function(celltypes) {
+  warning("get_celltype_colors() 已弃用，请使用 01_color_schemes.R 中的版本")
+  
   require(RColorBrewer)
   n <- length(celltypes)
   
@@ -306,3 +349,4 @@ get_celltype_colors <- function(celltypes) {
   return(colors)
 }
 
+cat("✅ 03_plot_overlay.R 已加载（全局统一配色版）\n")
