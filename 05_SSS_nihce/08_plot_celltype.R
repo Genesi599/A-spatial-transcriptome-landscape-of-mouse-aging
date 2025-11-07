@@ -506,11 +506,10 @@ create_global_color_scheme <- function(
   
   cat("\n🎨 生成全局颜色方案...\n")
   
-  # 收集所有细胞类型（保持原始名称）
   all_celltypes <- unique(unlist(lapply(data_list, function(df) {
     ct <- df[[celltype_col]]
     ct <- as.character(ct)
-    ct[!is.na(ct) & ct != "" & ct != "Unknown"]
+    unique(ct[!is.na(ct) & ct != "" & ct != "Unknown"])
   })))
   
   all_celltypes <- sort(all_celltypes)
@@ -518,7 +517,6 @@ create_global_color_scheme <- function(
   
   cat(sprintf("  📊 发现 %d 个细胞类型\n", n_celltypes))
   
-  # 打印列表
   if (n_celltypes <= 10) {
     for (ct in all_celltypes) {
       cat(sprintf("     • %s\n", ct))
