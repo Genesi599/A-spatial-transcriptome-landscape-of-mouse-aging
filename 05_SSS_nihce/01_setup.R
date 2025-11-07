@@ -178,7 +178,7 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
   
   cat("✓ future 全局选项已设置\n")
   
-  # ✅ 修复：只设置一次，使用全局模式
+  # ✅ 关键修改：设置进度条并启用全局传播
   progressr::handlers(
     progressr::handler_progress(
       format   = "[:bar] :percent | 已完成: :current/:total | 预计剩余: :eta | :message",
@@ -187,9 +187,11 @@ setup_parallel <- function(n_workers = 4, memory_limit = 100) {
       clear    = FALSE
     )
   )
+  
+  # ✅ 启用全局模式（让 future workers 继承设置）
   progressr::handlers(global = TRUE)
   
-  cat("✓ progressr 进度条已启用\n\n")
+  cat("✓ progressr 进度条已启用（全局模式）\n\n")
   
   return(invisible(NULL))
 }
