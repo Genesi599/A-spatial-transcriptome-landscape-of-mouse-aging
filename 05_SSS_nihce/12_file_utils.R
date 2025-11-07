@@ -178,7 +178,7 @@ update_config_paths <- function(config) {
     figure = config$figure_dir,
     metadata = config$metadata_dir,
     isoheight = file.path(config$figure_dir, "isoheight"),
-    spatial = file.path(config$figure_dir, "spatial"),
+    spatial = file.path(config$figure_dir, "spatial")
   )
   
   return(config)
