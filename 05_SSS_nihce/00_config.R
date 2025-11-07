@@ -12,7 +12,7 @@ CONFIG <- list(
   cache_dir = "/dellstorage09/quj_lab/yanghang/spatial/cache",
   
   # ===== 批量处理设置 =====
-  batch_mode = FALSE,
+  batch_mode = TRUE,
   seurat_path = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds/Hippocampus_2-25M.rds",
   seurat_dir = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds",
   seurat_pattern = "\\.rds$",
