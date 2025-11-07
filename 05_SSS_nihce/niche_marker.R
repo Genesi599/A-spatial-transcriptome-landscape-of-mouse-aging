@@ -1,25 +1,103 @@
 GetAllCoordinates <- function(.data) {
-  .data@images %>%
-    names() %>%
-    unique() %>%
-    map_dfr(~ {
-      GetTissueCoordinates(
-        .data,
-        image = .x,
-        cols = c("row", "col"),
-        scale = NULL
-      ) %>%
+  cat("🔍 提取所有样本的空间坐标...\n")
+  
+  image_names <- names(.data@images)
+  
+  if (length(image_names) == 0) {
+    stop("❌ Seurat 对象中没有空间图像数据")
+  }
+  
+  # 使用 map_dfr 合并所有样本的坐标
+  all_coords <- purrr::map_dfr(image_names, function(img_name) {
+    cat(sprintf("  >> 提取样本: %s\n", img_name))
+    
+    tryCatch({
+      # 方法1：直接从 coordinates 槽提取
+      coords <- .data@images[[img_name]]@coordinates
+      
+      # 确保有 row 和 col 列
+      if (!all(c("row", "col") %in% colnames(coords))) {
+        # 尝试使用其他列名
+        possible_row <- c("row", "imagerow", "array_row", "tissue_row")
+        possible_col <- c("col", "imagecol", "array_col", "tissue_col")
+        
+        actual_row <- intersect(colnames(coords), possible_row)[1]
+        actual_col <- intersect(colnames(coords), possible_col)[1]
+        
+        if (is.na(actual_row) || is.na(actual_col)) {
+          stop(sprintf("未找到有效坐标列。可用列: %s", 
+                      paste(colnames(coords), collapse=", ")))
+        }
+        
+        coords$row <- coords[[actual_row]]
+        coords$col <- coords[[actual_col]]
+      }
+      
+      # 提取需要的列
+      result <- coords %>%
+        as.data.frame() %>%
+        select(row, col) %>%
         rownames_to_column(var = "cellid")
+      
+      cat(sprintf("     ✓ 提取 %d 个细胞\n", nrow(result)))
+      
+      return(result)
+      
+    }, error = function(e) {
+      cat(sprintf("     ❌ 提取失败: %s\n", e$message))
+      
+      # 尝试方法2：使用 GetTissueCoordinates（如果可用）
+      tryCatch({
+        cat("     🔄 尝试使用 GetTissueCoordinates...\n")
+        
+        # 不同的参数组合
+        result <- tryCatch({
+          # Seurat v4 风格
+          Seurat::GetTissueCoordinates(
+            object = .data,
+            image = img_name,
+            cols = c("row", "col")
+          ) %>%
+            rownames_to_column(var = "cellid")
+        }, error = function(e2) {
+          # Seurat v5 风格
+          Seurat::GetTissueCoordinates(
+            object = .data,
+            image = img_name
+          ) %>%
+            rownames_to_column(var = "cellid")
+        })
+        
+        cat(sprintf("     ✓ 提取 %d 个细胞\n", nrow(result)))
+        return(result)
+        
+      }, error = function(e2) {
+        cat(sprintf("     ❌ GetTissueCoordinates 也失败: %s\n", e2$message))
+        return(NULL)
+      })
     })
+  })
+  
+  if (is.null(all_coords) || nrow(all_coords) == 0) {
+    stop("❌ 无法提取任何坐标数据")
+  }
+  
+  cat(sprintf("✅ 总共提取 %d 个细胞的坐标\n", nrow(all_coords)))
+  
+  # 验证数据
+  if (any(is.na(all_coords$row)) || any(is.na(all_coords$col))) {
+    warning("⚠️ 坐标中包含 NA 值")
+  }
+  
+  return(all_coords)
 }
 
 single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check = FALSE) {
-  if (nrow(intra_df) > 0) {  # ✅ 修复：使用 nrow() 而不是 length()
+  if (nrow(intra_df) > 0) {
     all_df <- df %>%
       column_to_rownames("cellid") %>%
       select(row, col)
 
-    # ✅ 添加调试信息
     cat(sprintf("  计算距离矩阵: %d 个查询点 × %d 个目标点\n", 
                 nrow(all_df), nrow(intra_df)))
 
@@ -28,20 +106,11 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check 
 
     spot_dist <- tibble(cellid = rownames(mat))
     
-    # ✅ 修复：确保 else 分支可用
     if (requireNamespace("matrixStats", quietly = TRUE)) {
       spot_dist[[spot_type]] <- matrixStats::rowMins(mat, na.rm = TRUE)
-      cat("  使用 matrixStats::rowMins 计算最小距离\n")
     } else {
-      # ✅ 取消注释 else 分支
       spot_dist[[spot_type]] <- apply(mat, 1, min, na.rm = TRUE)
-      cat("  使用 apply(min) 计算最小距离\n")
     }
-
-    # ✅ 添加验证
-    cat(sprintf("  Distance 范围: %.2f ~ %.2f\n",
-                min(spot_dist[[spot_type]], na.rm = TRUE),
-                max(spot_dist[[spot_type]], na.rm = TRUE)))
 
     if (!is.na(FUN)) {
       spot_dist[[spot_type]] <- FUN(spot_dist[[spot_type]])
@@ -51,8 +120,7 @@ single_marker <- function(df, intra_df, spot_type, dist_method, FUN, zero_check 
       left_join(spot_dist, by = "cellid")
 
   } else {
-    # ✅ 修复：当没有标记点时，所有距离应该是 Inf
-    cat("  ⚠️ 警告：没有找到标记点（intra_df 为空），Distance 设为 Inf\n")
+    cat("  ⚠️ 警告：没有找到标记点，Distance 设为 Inf\n")
     res <- df %>%
       mutate(!!spot_type := Inf)
   }
@@ -78,32 +146,48 @@ niche_marker <- function(
 
   library(future)
   library(future.apply)
+  library(dplyr)
+  library(tibble)
 
   plan(multisession, workers = n_work)
   options(future.globals.maxSize = Inf)
   message(">> 使用核心数: ", nbrOfWorkers())
 
-  # ✅ 添加全局统计
+  # 全局统计
   n_total <- ncol(.data)
   n_marker <- sum(.data@meta.data[[marker]], na.rm = TRUE)
   message(sprintf(">> 总点数: %d, 标记点数: %d (%.1f%%)",
                   n_total, n_marker, 100 * n_marker / n_total))
 
-  # ✅✅✅ 关键修复：保存原始的细胞顺序
+  # 保存原始细胞顺序
   original_cell_order <- colnames(.data)
   message(sprintf(">> 保存原始细胞顺序: %d 个细胞", length(original_cell_order)))
+
+  # ========== 关键修复：使用修复版的 GetAllCoordinates ==========
+  all_coords <- tryCatch({
+    GetAllCoordinates(.data)
+  }, error = function(e) {
+    message("⚠️ GetAllCoordinates 失败，尝试简单版本...")
+    GetAllCoordinates_Simple(.data)
+  })
+  
+  # 验证坐标提取结果
+  if (nrow(all_coords) != n_total) {
+    warning(sprintf("⚠️ 坐标数量 (%d) 与细胞数量 (%d) 不匹配", 
+                   nrow(all_coords), n_total))
+  }
 
   .data@meta.data <-
     .data@meta.data %>%
     rownames_to_column(var = "cellid") %>%
-    left_join(GetAllCoordinates(.data), by = "cellid") %>%
+    left_join(all_coords, by = "cellid") %>%
     group_by(.data[[slide]]) %>%
     group_split() %>%
     future_lapply(function(df) {
       slide_name <- df[[slide]][1]
       cat(sprintf("\n处理样本: %s\n", slide_name))
 
-      # ✅ 修复：过滤时需要处理 NA 值
+      # 过滤标记点
       intra_df <- df %>%
         filter(!is.na(.data[[marker]]) & .data[[marker]] == TRUE) %>%
         column_to_rownames("cellid") %>%
@@ -118,10 +202,9 @@ niche_marker <- function(
     bind_rows() %>%
     column_to_rownames(var = "cellid")
 
-  # ✅✅✅ 关键修复：严格按原始顺序重新排列
+  # 严格按原始顺序重新排列
   message("\n>> 重新排序 meta.data 以匹配 Seurat object...")
   
-  # 检查是否所有细胞都存在
   current_cells <- rownames(.data@meta.data)
   missing_cells <- setdiff(original_cell_order, current_cells)
   extra_cells <- setdiff(current_cells, original_cell_order)
@@ -132,20 +215,17 @@ niche_marker <- function(
   
   if (length(extra_cells) > 0) {
     warning(sprintf("⚠️ meta.data 中有 %d 个多余细胞，将被移除", length(extra_cells)))
-    .data@meta.data <- .data@meta.data[original_cell_order, ]
-  } else {
-    # 强制按原始顺序重新排列
-    .data@meta.data <- .data@meta.data[original_cell_order, ]
   }
   
-  # 验证排序结果
+  .data@meta.data <- .data@meta.data[original_cell_order, ]
+  
   if (!identical(rownames(.data@meta.data), original_cell_order)) {
     stop("❌ 严重错误：重新排序后仍不匹配！")
   }
   
   message("✅ meta.data 行顺序已修正并验证")
 
-  # ✅ 最终验证
+  # 最终验证
   message("\n>> Distance 计算完成！")
   dist_vals <- .data@meta.data[[spot_type]]
   message(sprintf(">> Distance 统计: 最小=%.2f, 最大=%.2f, 均值=%.2f",
@@ -153,14 +233,8 @@ niche_marker <- function(
                   max(dist_vals, na.rm = TRUE),
                   mean(dist_vals, na.rm = TRUE)))
 
-  # ✅ 关键验证：标记点的 Distance 应该是 0
+  # 验证标记点
   marker_dist <- dist_vals[.data@meta.data[[marker]]]
-  message(sprintf(">> 标记点的 Distance: 最小=%.2f, 最大=%.2f, 均值=%.2f",
-                  min(marker_dist, na.rm = TRUE),
-                  max(marker_dist, na.rm = TRUE),
-                  mean(marker_dist, na.rm = TRUE)))
-  
-  # ✅✅✅ 增强验证：检查标记点 Distance = 0 的比例
   n_marker_zero <- sum(marker_dist == 0, na.rm = TRUE)
   n_marker_total <- length(marker_dist[!is.na(marker_dist)])
   pct_marker_zero <- 100 * n_marker_zero / n_marker_total
@@ -169,18 +243,7 @@ niche_marker <- function(
                   n_marker_zero, n_marker_total, pct_marker_zero))
   
   if (pct_marker_zero < 99) {
-    warning(sprintf("⚠️ 警告：只有 %.1f%% 的标记点 Distance=0！应该接近 100%%", pct_marker_zero))
-    
-    # 找出异常的标记点
-    abnormal_marker_cells <- names(marker_dist)[marker_dist > 0]
-    if (length(abnormal_marker_cells) > 0) {
-      message(sprintf(">> 前 10 个异常标记点（Distance > 0）:"))
-      abnormal_info <- .data@meta.data[head(abnormal_marker_cells, 10), 
-                                       c(slide, marker, spot_type)]
-      print(abnormal_info)
-    }
-  } else {
-    message("✅ 验证通过：几乎所有标记点的 Distance = 0")
+    warning(sprintf("⚠️ 警告：只有 %.1f%% 的标记点 Distance=0！", pct_marker_zero))
   }
 
   return(.data)
