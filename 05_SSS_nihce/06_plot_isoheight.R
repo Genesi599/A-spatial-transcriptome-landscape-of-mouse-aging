@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 # ===================================================================
-# 等高线密度图绘制模块（优化版 + 进度条）
+# 等高线密度图绘制模块（优化版 - 3线程并行）
 # 功能：多线程并行绘制 Clock Gene 等高线密度图
 # ===================================================================
 
@@ -38,7 +38,7 @@ plot_isoheight <- function(sample_list,
   
   cat("\n")
   cat("═══════════════════════════════════════════════════════════\n")
-  cat("   等高线密度图绘制（多线程并行）\n")
+  cat("   等高线密度图绘制（3线程并行）\n")
   cat("═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
@@ -66,7 +66,9 @@ plot_isoheight <- function(sample_list,
   size_bg <- CONFIG$plot$point_size_bg %||% 0.3
   size_top <- CONFIG$plot$point_size_top %||% 1.2
   dpi <- CONFIG$plot$dpi %||% 300
-  n_workers <- CONFIG$n_workers %||% 4
+  
+  # ✅ 强制限制线程数为3
+  n_workers <- 3
   
   # 默认色谱
   if (is.null(cols_fill_isoheight)) {
@@ -83,33 +85,40 @@ plot_isoheight <- function(sample_list,
   # 2. 设置并行环境
   # ========================================
   
+  # 禁用 SLURM 检测
+  Sys.setenv(
+    R_FUTURE_PLAN = "multisession",
+    R_FUTURE_FORK_ENABLE = "false",
+    SLURM_JOBID = ""
+  )
+  
+  # 设置并行
   future::plan(future::multisession, workers = n_workers)
-  options(future.globals.maxSize = Inf)
+  options(
+    future.globals.maxSize = Inf,
+    future.availableCores.system = n_workers
+  )
   
-  start_time <- Sys.time()
-  
-  
-  # ========================================
-  # 4. 并行绘图
-  # ========================================
-
-  cat("🎨 开始绘图...\n\n")
-
-  # ✅ 确保进度条处理器已设置
+  # 确保进度条已启用
   if (is.null(progressr::handlers(NULL))) {
     progressr::handlers(global = TRUE)
   }
-
+  
+  start_time <- Sys.time()
+  
+  # ========================================
+  # 3. 并行绘图
+  # ========================================
+  
+  cat("🎨 开始绘图...\n\n")
+  
   progressr::with_progress({
     
-    p <- progressr::progressor(
-      steps = length(sample_list),
-      message = "绘制等高线图"
-    )
+    p <- progressr::progressor(steps = length(sample_list))
     
     results <- future.apply::future_lapply(
       
-      X = names(sample_list), 
+      X = names(sample_list),
       
       FUN = function(sample_id) {
         
@@ -180,7 +189,7 @@ plot_isoheight <- function(sample_list,
           n_spots <- ncol(seurat_subset)
           high_pct <- 100 * n_high / n_spots
           
-          # ✅ 更新进度（显示样本名）
+          # 更新进度
           p(message = sprintf("✅ %s (%.2f MB)", sample_id, file_size_mb))
           
           return(list(
@@ -205,26 +214,26 @@ plot_isoheight <- function(sample_list,
       
       future.seed = TRUE,
       future.chunk.size = 1,
-      future.packages = c("Seurat", "ggplot2", "progressr"),  # ✅ 添加必要的包
-      future.globals = structure(TRUE, add = c("p", "sample_list", "CONFIG",  # ✅ 显式传递对象
-                                                "celltype_isoheight_plot",
-                                                "col_bg", "col_top", "col_isoheight",
-                                                "col_white_ratio", "cols_fill_isoheight",
-                                                "size_bg", "size_top", "nrow",
-                                                "plot_width", "plot_height", "dpi"))
+      future.packages = c("Seurat", "ggplot2", "progressr"),
+      future.globals = structure(TRUE, add = c(
+        "p", "sample_list", "CONFIG",
+        "celltype_isoheight_plot",
+        "col_bg", "col_top", "col_isoheight",
+        "col_white_ratio", "cols_fill_isoheight",
+        "size_bg", "size_top", "nrow",
+        "plot_width", "plot_height", "dpi"
+      ))
     )
   })
-
+  
   end_time <- Sys.time()
   elapsed <- difftime(end_time, start_time, units = "secs")
-
+  
   # 关闭并行
   future::plan(future::sequential)
-
-  cat(sprintf("\n⏱️  总耗时: %.2f 分钟\n", elapsed / 60))
-    
+  
   # ========================================
-  # 5. 统计输出
+  # 4. 统计输出
   # ========================================
   
   n_success <- sum(sapply(results, function(x) x$success))
@@ -284,7 +293,7 @@ plot_isoheight <- function(sample_list,
   cat("\n═══════════════════════════════════════════════════════════\n\n")
   
   # ========================================
-  # 6. 返回结果
+  # 5. 返回结果
   # ========================================
   
   return(invisible(list(
