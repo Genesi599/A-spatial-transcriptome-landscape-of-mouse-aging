@@ -313,78 +313,54 @@ process_single_sample <- function(df, sample_id, CONFIG) {
     stop("❌ 全局颜色方案未初始化！")
   }
   
-  # 标准化细胞类型
+  # ✅ 不改变名称，直接使用原始细胞类型
   raw_celltypes <- df[[CONFIG$params$celltype_col]]
   
   if (is.null(raw_celltypes) || length(raw_celltypes) == 0) {
     stop(sprintf("❌ 细胞类型列 '%s' 为空", CONFIG$params$celltype_col))
   }
   
-  df$celltype_clean <- standardize_celltype_names(raw_celltypes, mode = "underscore", title_case = TRUE)
+  # 只处理NA和空值
+  df$celltype_clean <- ifelse(
+    is.na(raw_celltypes) | raw_celltypes == "", 
+    "Unknown", 
+    as.character(raw_celltypes)
+  )
   
-  # 打印标准化结果
-  unique_raw <- unique(raw_celltypes)
-  unique_clean <- unique(df$celltype_clean)
+  # 打印细胞类型信息
+  unique_types <- unique(df$celltype_clean)
+  unique_types <- unique_types[unique_types != "Unknown"]
+  n_types <- length(unique_types)
   
-  cat("  🔄 细胞类型标准化:\n")
+  cat(sprintf("  📊 细胞类型: %d 个\n", n_types))
   
-  if (length(unique_clean) > 0) {
-    # 创建映射表
-    name_map <- data.frame(
-      raw = as.character(unique_raw),
-      clean = as.character(unique_clean),
-      stringsAsFactors = FALSE
-    )
-    
-    # 显示变化的类型
-    changed <- name_map[name_map$raw != name_map$clean, ]
-    
-    if (nrow(changed) > 0) {
-      n_show <- min(5, nrow(changed))
-      for (i in 1:n_show) {
-        cat(sprintf("     '%s' → '%s'\n", changed$raw[i], changed$clean[i]))
-      }
-      if (nrow(changed) > 5) {
-        cat(sprintf("     ... 还有 %d 个\n", nrow(changed) - 5))
-      }
-    } else {
-      cat("     （无需标准化）\n")
+  if (n_types <= 10) {
+    for (ct in unique_types) {
+      cat(sprintf("     • %s\n", ct))
     }
-    
-    cat(sprintf("     总计: %d 个唯一类型\n", length(unique_clean)))
   } else {
-    cat("     ⚠️  未找到细胞类型\n")
+    for (i in 1:10) {
+      cat(sprintf("     • %s\n", unique_types[i]))
+    }
+    cat(sprintf("     ... 还有 %d 个\n", n_types - 10))
   }
   
   # 检查未知类型
   all_types_global <- names(CONFIG$colors$celltype)
-  sample_types <- setdiff(unique(df$celltype_clean), "Unknown")
+  sample_types <- unique(df$celltype_clean)
+  sample_types <- sample_types[sample_types != "Unknown"]
   missing_types <- setdiff(sample_types, all_types_global)
   
   if (length(missing_types) > 0) {
     warning(sprintf("  ⚠️  未知类型: %s", paste(missing_types, collapse = ", ")))
   }
   
-  # 计算密度区域（✅ 修复：添加错误处理）
-  density_data <- tryCatch({
-    calculate_density_zones(
-      df = df,
-      col_col = CONFIG$params$col_col,
-      row_col = CONFIG$params$row_col,
-      density_threshold_percentile = CONFIG$params$density_threshold_percentile,
-      n_zones = CONFIG$params$n_zones,
-      grid_resolution = CONFIG$params$grid_resolution
-    )
-  }, error = function(e) {
-    cat(sprintf("  ⚠️  参数名称不匹配，尝试位置参数: %s\n", e$message))
-    # 尝试位置参数
-    calculate_density_zones(
-      df,
-      CONFIG$params$density_threshold_percentile,
-      CONFIG$params$n_zones,
-      CONFIG$params$grid_resolution
-    )
-  })
+  # ✅ 正确调用 calculate_density_zones
+  density_data <- calculate_density_zones(
+    df = df,
+    density_bins = CONFIG$params$n_zones,
+    expand_margin = 0.1
+  )
   
   df$density_zone <- density_data$cell_zones
   
@@ -455,10 +431,11 @@ create_global_color_scheme <- function(data_list, celltype_col, n_zones = 10) {
   
   cat("\n🎨 生成全局颜色方案...\n")
   
-  # 收集所有细胞类型
+  # ✅ 收集所有细胞类型（不改名称）
   all_celltypes <- unique(unlist(lapply(data_list, function(df) {
-    ct <- standardize_celltype_names(df[[celltype_col]], mode = "underscore", title_case = TRUE)
-    ct[ct != "Unknown"]
+    ct <- df[[celltype_col]]
+    ct <- as.character(ct)
+    ct[!is.na(ct) & ct != "" & ct != "Unknown"]
   })))
   
   all_celltypes <- sort(all_celltypes)
