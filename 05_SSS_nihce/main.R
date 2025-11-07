@@ -204,17 +204,17 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
   # 步骤 7-9: 可视化分析
   # ========================================
   
-  # cat("\n【步骤 7/9】绘制等高线密度图\n")
-  # iso_results <- plot_isoheight(
-  #   sample_list = sample_list,
-  #   CONFIG = config
-  # )
+  cat("\n【步骤 7/9】绘制等高线密度图\n")
+  iso_results <- plot_isoheight(
+    sample_list = sample_list,
+    CONFIG = config
+  )
   
-  # cat("\n【步骤 8/9】绘制空间梯度图\n")
-  # spatial_results <- plot_spatial_gradient(
-  #   sample_list = sample_list,
-  #   CONFIG = config
-  # )
+  cat("\n【步骤 8/9】绘制空间梯度图\n")
+  spatial_results <- plot_spatial_gradient(
+    sample_list = sample_list,
+    CONFIG = config
+  )
   
   cat("\n【步骤 9/9】细胞类型 Niche 分析\n")
   celltype_results <- analyze_celltype_niche(
