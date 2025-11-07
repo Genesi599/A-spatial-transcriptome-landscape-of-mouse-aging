@@ -1,45 +1,37 @@
+# ===================================================================
+# 08_plot_celltype.R (修复版 - 简洁)
+# 细胞类型在密度区域中的分布分析
+# Author: Assistant | Date: 2025-11-07 | Version: 2.4
+# ===================================================================
+
+cat("🔧 加载 08_plot_celltype.R (修复版)...\n")
 
 # ===================================================================
-# 08_plot_celltype.R (带调试缓存 - 完整版)
-# 细胞类型在密度区域中的分布分析（全局统一配色版 + 调试缓存）
-# Author: Assistant | Date: 2025-11-07 | Version: 2.3
-# ===================================================================
-
-cat("🔧 加载 08_plot_celltype.R (带调试缓存)...\n")
-
-# ===================================================================
-# 自动检测script_dir
+# 加载依赖工具函数
 # ===================================================================
 
 if (!exists("script_dir")) {
-  # 从当前脚本路径推断
   current_script <- tryCatch({
-    # 方法1: 使用sys.frame
     normalizePath(sys.frame(1)$ofile, winslash = "/")
   }, error = function(e) {
-    # 方法2: 使用commandArgs (适用于Rscript)
     args <- commandArgs(trailingOnly = FALSE)
     file_arg <- grep("^--file=", args, value = TRUE)
     if (length(file_arg) > 0) {
       sub("^--file=", "", file_arg)
     } else {
-      # 方法3: 使用当前工作目录
       file.path(getwd(), "08_plot_celltype.R")
     }
   })
-  
   script_dir <- dirname(current_script)
   cat(sprintf("   📂 脚本目录: %s\n", script_dir))
 }
 
-# 检查工具函数目录是否存在
 utils_dir <- file.path(script_dir, "08_plot_celltype_utils")
 
 if (!dir.exists(utils_dir)) {
-  stop(sprintf("❌ 工具函数目录不存在: %s\n请确保 08_plot_celltype_utils 文件夹在正确位置", utils_dir))
+  stop(sprintf("❌ 工具函数目录不存在: %s", utils_dir))
 }
 
-# 加载工具函数
 cat("   📦 加载工具函数...\n")
 tryCatch({
   source(file.path(utils_dir, "00_operators.R"))
@@ -57,53 +49,35 @@ tryCatch({
 
 
 # ===================================================================
-# 缓存管理函数
+# 缓存管理
 # ===================================================================
 
-#' 生成绘图数据的缓存key
-#' 
-#' @param sample_id 样本ID
-#' @param CONFIG 配置对象
-#' @return 缓存key字符串
-#'
 generate_plot_cache_key <- function(sample_id, CONFIG) {
   if (!requireNamespace("digest", quietly = TRUE)) {
     stop("需要安装 digest 包: install.packages('digest')")
   }
   
-  # 提取影响绘图的关键参数
   key_params <- list(
     sample_id = sample_id,
     density_threshold = CONFIG$params$density_threshold_percentile,
     n_zones = CONFIG$params$n_zones,
     grid_resolution = CONFIG$params$grid_resolution,
     celltype_col = CONFIG$params$celltype_col,
-    version = "v2.3"  # 版本标识，可在逻辑变化时强制更新缓存
+    version = "v2.4"
   )
   
-  cache_key <- digest::digest(key_params, algo = "md5")
-  return(cache_key)
+  digest::digest(key_params, algo = "md5")
 }
 
-
-#' 保存绘图数据到缓存
-#' 
-#' @param sample_id 样本ID
-#' @param plot_data 绘图数据列表
-#' @param CONFIG 配置对象
-#'
 save_plot_cache <- function(sample_id, plot_data, CONFIG) {
-  
   if (is.null(CONFIG$cache_dir) || !CONFIG$debug_mode) {
     return(invisible(NULL))
   }
   
-  # 确保缓存目录存在
   if (!dir.exists(CONFIG$cache_dir)) {
     dir.create(CONFIG$cache_dir, recursive = TRUE, showWarnings = FALSE)
   }
   
-  # 生成缓存文件名
   cache_key <- generate_plot_cache_key(sample_id, CONFIG)
   cache_file <- file.path(CONFIG$cache_dir, sprintf("celltype_plot_%s.rds", cache_key))
   
@@ -118,15 +92,7 @@ save_plot_cache <- function(sample_id, plot_data, CONFIG) {
   invisible(cache_file)
 }
 
-
-#' 从缓存加载绘图数据
-#' 
-#' @param sample_id 样本ID
-#' @param CONFIG 配置对象
-#' @return 绘图数据列表或NULL
-#'
 load_plot_cache <- function(sample_id, CONFIG) {
-  
   if (is.null(CONFIG$cache_dir) || !CONFIG$debug_mode) {
     return(NULL)
   }
@@ -149,13 +115,7 @@ load_plot_cache <- function(sample_id, CONFIG) {
   })
 }
 
-
-#' 清理过期缓存
-#' 
-#' @param CONFIG 配置对象
-#'
 clean_expired_cache <- function(CONFIG) {
-  
   if (is.null(CONFIG$cache_dir) || is.null(CONFIG$cache_max_age_hours)) {
     return(invisible(NULL))
   }
@@ -166,40 +126,25 @@ clean_expired_cache <- function(CONFIG) {
     full.names = TRUE
   )
   
-  if (length(cache_files) == 0) {
-    return(invisible(NULL))
-  }
+  if (length(cache_files) == 0) return(invisible(NULL))
   
   current_time <- Sys.time()
   max_age_secs <- CONFIG$cache_max_age_hours * 3600
   
-  expired_files <- c()
-  
-  for (cache_file in cache_files) {
-    file_time <- file.info(cache_file)$mtime
-    age_secs <- as.numeric(difftime(current_time, file_time, units = "secs"))
-    
-    if (age_secs > max_age_secs) {
-      expired_files <- c(expired_files, cache_file)
-    }
-  }
+  expired_files <- cache_files[sapply(cache_files, function(f) {
+    age_secs <- as.numeric(difftime(current_time, file.info(f)$mtime, units = "secs"))
+    age_secs > max_age_secs
+  })]
   
   if (length(expired_files) > 0) {
-    cat(sprintf("   🗑️  清理 %d 个过期缓存文件\n", length(expired_files)))
+    cat(sprintf("   🗑️  清理 %d 个过期缓存\n", length(expired_files)))
     unlink(expired_files)
   }
   
   invisible(expired_files)
 }
 
-
-#' 列出所有缓存文件信息
-#' 
-#' @param CONFIG 配置对象
-#' @return 缓存文件信息数据框
-#'
 list_cache_info <- function(CONFIG) {
-  
   if (is.null(CONFIG$cache_dir) || !dir.exists(CONFIG$cache_dir)) {
     cat("❌ 缓存目录不存在\n")
     return(invisible(NULL))
@@ -223,22 +168,14 @@ list_cache_info <- function(CONFIG) {
     stringsAsFactors = FALSE
   )
   
-  cat(sprintf("📂 缓存文件列表 (%s):\n", CONFIG$cache_dir))
+  cat(sprintf("📂 缓存列表 (%s):\n", CONFIG$cache_dir))
   print(cache_info)
-  cat(sprintf("\n总计: %d 个文件, %.2f MB\n", 
-              nrow(cache_info), sum(cache_info$size_mb)))
+  cat(sprintf("\n总计: %d 文件, %.2f MB\n", nrow(cache_info), sum(cache_info$size_mb)))
   
-  return(invisible(cache_info))
+  invisible(cache_info)
 }
 
-
-#' 清除所有celltype绘图缓存
-#' 
-#' @param CONFIG 配置对象
-#' @param confirm 是否需要确认
-#'
 clear_all_cache <- function(CONFIG, confirm = TRUE) {
-  
   if (is.null(CONFIG$cache_dir) || !dir.exists(CONFIG$cache_dir)) {
     cat("❌ 缓存目录不存在\n")
     return(invisible(NULL))
@@ -251,16 +188,15 @@ clear_all_cache <- function(CONFIG, confirm = TRUE) {
   )
   
   if (length(cache_files) == 0) {
-    cat("📂 缓存目录为空，无需清理\n")
+    cat("📂 缓存目录为空\n")
     return(invisible(NULL))
   }
   
   total_size_mb <- sum(sapply(cache_files, file.size)) / 1024^2
   
   if (confirm) {
-    cat(sprintf("⚠️  将删除 %d 个缓存文件 (%.2f MB)\n", length(cache_files), total_size_mb))
+    cat(sprintf("⚠️  将删除 %d 文件 (%.2f MB)\n", length(cache_files), total_size_mb))
     response <- readline(prompt = "确认删除? (yes/no): ")
-    
     if (tolower(trimws(response)) != "yes") {
       cat("❌ 已取消\n")
       return(invisible(NULL))
@@ -268,29 +204,25 @@ clear_all_cache <- function(CONFIG, confirm = TRUE) {
   }
   
   unlink(cache_files)
-  cat(sprintf("✅ 已删除 %d 个缓存文件\n", length(cache_files)))
-  
+  cat(sprintf("✅ 已删除 %d 文件\n", length(cache_files)))
   invisible(cache_files)
 }
 
 
 # ===================================================================
-# 细胞类型名称标准化
+# 细胞类型名称标准化（✅ 修复版）
 # ===================================================================
 
-#' 标准化细胞类型名称
-#' 
-#' @param names 细胞类型名称向量
-#' @param mode 标准化模式 ("underscore"/"hyphen"/"space")
-#' @param title_case 是否首字母大写
-#' @return 标准化后的名称向量
-#'
 standardize_celltype_names <- function(names, mode = "underscore", title_case = TRUE) {
   
+  # 确保是字符向量
+  if (!is.character(names)) {
+    names <- as.character(names)
+  }
+  
   # 基础清理
-  names <- as.character(names)
   names <- trimws(names)
-  names[is.na(names) | names == ""] <- "Unknown"
+  names[is.na(names) | names == "" | names == "NA"] <- "Unknown"
   
   # 统一分隔符
   if (mode == "underscore") {
@@ -300,182 +232,159 @@ standardize_celltype_names <- function(names, mode = "underscore", title_case = 
     names <- gsub("_", "-", names)
     names <- gsub("\\s+", "-", names)
   } else if (mode == "space") {
-    names <- gsub("_", " ", names)
-    names <- gsub("-", " ", names)
+    names <- gsub("[_-]", " ", names)
     names <- gsub("\\s+", " ", names)
   }
   
-  # 首字母大写
+  # 去除多余分隔符
+  names <- gsub("^[_\\-\\s]+|[_\\-\\s]+$", "", names)
+  
+  # 首字母大写（✅ 修复：使用 vapply 确保向量化）
   if (title_case) {
-    separator <- if(mode == "underscore") "_" else if(mode == "hyphen") "-" else " "
+    separator <- switch(mode, underscore = "_", hyphen = "-", space = " ", "_")
     
-    names <- sapply(names, function(name) {
-      if (name == "Unknown") return("Unknown")
+    names <- vapply(names, function(name) {
+      if (name == "Unknown" || name == "") return("Unknown")
+      
       parts <- strsplit(name, sprintf("[%s]", separator))[[1]]
+      if (length(parts) == 0) return("Unknown")
+      
       parts <- tolower(parts)
       parts <- paste0(toupper(substring(parts, 1, 1)), substring(parts, 2))
       paste(parts, collapse = separator)
-    }, USE.NAMES = FALSE)
+    }, character(1), USE.NAMES = FALSE)
   }
   
-  # 去除前后多余分隔符
-  names <- gsub("^[_\\-\\s]+|[_\\-\\s]+$", "", names)
-  
   # 保留常见缩写大写
-  names <- gsub("\\b(Smc)\\b", "SMC", names)
-  names <- gsub("\\b(Pp)\\b", "PP", names)
-  names <- gsub("\\b(Bv)\\b", "BV", names)
-  names <- gsub("\\b(Mv)\\b", "MV", names)
-  names <- gsub("\\b(Tv)\\b", "TV", names)
+  names <- gsub("\\b(Smc)\\b", "SMC", names, ignore.case = TRUE)
+  names <- gsub("\\b(Pp)\\b", "PP", names, ignore.case = TRUE)
+  names <- gsub("\\b(Bv)\\b", "BV", names, ignore.case = TRUE)
+  names <- gsub("\\b(Mv)\\b", "MV", names, ignore.case = TRUE)
+  names <- gsub("\\b(Tv)\\b", "TV", names, ignore.case = TRUE)
   
   return(names)
 }
 
 
 # ===================================================================
-# 单样本处理 (带缓存支持)
+# 单样本处理（✅ 修复版）
 # ===================================================================
 
-#' 处理单个样本 (支持调试缓存)
-#'
-#' 处理单个样本 (支持调试缓存)
-#'
-#' @param df 数据框（包含坐标和细胞类型）
-#' @param sample_id 样本ID
-#' @param CONFIG 配置列表
-#' @return 处理结果列表
-#'
 process_single_sample <- function(df, sample_id, CONFIG) {
   
   cat(sprintf("\n[%s]\n", sample_id))
   
-  # ===================================================================
-  # 1. 尝试加载缓存
-  # ===================================================================
-  
+  # 尝试加载缓存
   cached_data <- load_plot_cache(sample_id, CONFIG)
   
   if (!is.null(cached_data)) {
-    cat("      🎨 使用缓存数据直接绘图...\n")
+    cat("      🎨 使用缓存数据...\n")
     
-    # 使用缓存数据绘图
     p_overlay <- plot_celltype_density_overlay(
-      cached_data$df, 
-      cached_data$density_data, 
-      sample_id, 
-      CONFIG
+      cached_data$df, cached_data$density_data, sample_id, CONFIG
     )
-    
     p_composition <- plot_zone_composition(
-      cached_data$zone_composition, 
-      sample_id, 
-      CONFIG
+      cached_data$zone_composition, sample_id, CONFIG
     )
     
-    # 保存图形
     overlay_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_overlay.png", sample_id))
     composition_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_composition.png", sample_id))
     
-    ggsave(overlay_file, plot = p_overlay, width = 16, height = 12, dpi = 300, bg = "white")
-    ggsave(composition_file, plot = p_composition, width = 14, height = 10, dpi = 300, bg = "white")
+    ggsave(overlay_file, p_overlay, width = 16, height = 12, dpi = 300, bg = "white")
+    ggsave(composition_file, p_composition, width = 14, height = 10, dpi = 300, bg = "white")
     
-    # 统计信息
     n_spots <- nrow(cached_data$df)
-    n_high_density <- sum(!is.na(cached_data$df$density_zone))
-    n_celltypes <- length(setdiff(unique(cached_data$df$celltype_clean), "Unknown"))
+    n_high <- sum(!is.na(cached_data$df$density_zone))
+    n_types <- length(setdiff(unique(cached_data$df$celltype_clean), "Unknown"))
     
-    cat(sprintf("  ✅ %d spots | %d high | %d celltypes (缓存)\n", 
-                n_spots, n_high_density, n_celltypes))
+    cat(sprintf("  ✅ %d spots | %d high | %d types (缓存)\n", n_spots, n_high, n_types))
     
     return(list(
       density_data = cached_data$density_data,
       zone_composition = cached_data$zone_composition,
       plots = list(overlay = p_overlay, composition = p_composition),
-      stats = list(
-        n_spots = n_spots,
-        n_high_density = n_high_density,
-        n_celltypes = n_celltypes
-      ),
+      stats = list(n_spots = n_spots, n_high_density = n_high, n_celltypes = n_types),
       from_cache = TRUE
     ))
   }
   
-  # ===================================================================
-  # 2. 缓存不存在,正常计算
-  # ===================================================================
-  
-  # 验证颜色方案
+  # 验证配置
   if (is.null(CONFIG$colors$celltype)) {
-    stop("❌ 全局颜色方案未初始化！请先调用 create_global_color_scheme()")
+    stop("❌ 全局颜色方案未初始化！")
   }
   
-  # 标准化细胞类型名称
+  # 标准化细胞类型
   raw_celltypes <- df[[CONFIG$params$celltype_col]]
   
-  # ✅ 添加数据验证
   if (is.null(raw_celltypes) || length(raw_celltypes) == 0) {
-    stop(sprintf("❌ 细胞类型列 '%s' 为空或不存在", CONFIG$params$celltype_col))
+    stop(sprintf("❌ 细胞类型列 '%s' 为空", CONFIG$params$celltype_col))
   }
   
   df$celltype_clean <- standardize_celltype_names(raw_celltypes, mode = "underscore", title_case = TRUE)
   
-  # 打印标准化示例（✅ 修复后的版本）
+  # 打印标准化结果
   unique_raw <- unique(raw_celltypes)
   unique_clean <- unique(df$celltype_clean)
-  n_show <- min(5, length(unique_raw))
   
   cat("  🔄 细胞类型标准化:\n")
   
-  if (length(unique_raw) > 0 && length(unique_clean) > 0) {
-    # 创建映射表（更安全的方式）
+  if (length(unique_clean) > 0) {
+    # 创建映射表
     name_map <- data.frame(
       raw = as.character(unique_raw),
       clean = as.character(unique_clean),
       stringsAsFactors = FALSE
     )
     
-    # 只显示有变化的
-    changed_names <- name_map[name_map$raw != name_map$clean, ]
+    # 显示变化的类型
+    changed <- name_map[name_map$raw != name_map$clean, ]
     
-    if (nrow(changed_names) > 0) {
-      n_display <- min(5, nrow(changed_names))
-      for (i in 1:n_display) {
-        cat(sprintf("     '%s' → '%s'\n", 
-                    changed_names$raw[i], 
-                    changed_names$clean[i]))
+    if (nrow(changed) > 0) {
+      n_show <- min(5, nrow(changed))
+      for (i in 1:n_show) {
+        cat(sprintf("     '%s' → '%s'\n", changed$raw[i], changed$clean[i]))
       }
-      
-      if (nrow(changed_names) > 5) {
-        cat(sprintf("     ... 还有 %d 个变化\n", nrow(changed_names) - 5))
+      if (nrow(changed) > 5) {
+        cat(sprintf("     ... 还有 %d 个\n", nrow(changed) - 5))
       }
     } else {
       cat("     （无需标准化）\n")
     }
     
-    # 显示总数
-    cat(sprintf("     总计: %d 个唯一细胞类型\n", length(unique_clean)))
+    cat(sprintf("     总计: %d 个唯一类型\n", length(unique_clean)))
   } else {
     cat("     ⚠️  未找到细胞类型\n")
   }
   
-  # 检查未知细胞类型
-  all_celltypes_global <- names(CONFIG$colors$celltype)
-  sample_celltypes <- setdiff(unique(df$celltype_clean), "Unknown")
-  missing_types <- setdiff(sample_celltypes, all_celltypes_global)
+  # 检查未知类型
+  all_types_global <- names(CONFIG$colors$celltype)
+  sample_types <- setdiff(unique(df$celltype_clean), "Unknown")
+  missing_types <- setdiff(sample_types, all_types_global)
   
   if (length(missing_types) > 0) {
-    warning(sprintf("  ⚠️  未知细胞类型: %s", paste(missing_types, collapse = ", ")))
+    warning(sprintf("  ⚠️  未知类型: %s", paste(missing_types, collapse = ", ")))
   }
   
-  # 计算密度区域
-  density_data <- calculate_density_zones(
-    df = df,
-    col_col = CONFIG$params$col_col,
-    row_col = CONFIG$params$row_col,
-    density_threshold_percentile = CONFIG$params$density_threshold_percentile,
-    n_zones = CONFIG$params$n_zones,
-    grid_resolution = CONFIG$params$grid_resolution
-  )
+  # 计算密度区域（✅ 修复：添加错误处理）
+  density_data <- tryCatch({
+    calculate_density_zones(
+      df = df,
+      col_col = CONFIG$params$col_col,
+      row_col = CONFIG$params$row_col,
+      density_threshold_percentile = CONFIG$params$density_threshold_percentile,
+      n_zones = CONFIG$params$n_zones,
+      grid_resolution = CONFIG$params$grid_resolution
+    )
+  }, error = function(e) {
+    cat(sprintf("  ⚠️  参数名称不匹配，尝试位置参数: %s\n", e$message))
+    # 尝试位置参数
+    calculate_density_zones(
+      df,
+      CONFIG$params$density_threshold_percentile,
+      CONFIG$params$n_zones,
+      CONFIG$params$grid_resolution
+    )
+  })
   
   df$density_zone <- density_data$cell_zones
   
@@ -491,62 +400,48 @@ process_single_sample <- function(df, sample_id, CONFIG) {
     ) %>%
     dplyr::ungroup()
   
-  # ===================================================================
-  # 3. 保存到缓存 (仅调试模式)
-  # ===================================================================
-  
+  # 保存缓存
   if (CONFIG$debug_mode) {
     plot_data <- list(
       df = df,
       density_data = density_data,
       zone_composition = zone_composition,
-      # 保存关键参数便于验证
       params = list(
         sample_id = sample_id,
         n_spots = nrow(df),
         n_zones = CONFIG$params$n_zones,
-        celltype_col = CONFIG$params$celltype_col,
         cache_time = Sys.time()
       )
     )
-    
     save_plot_cache(sample_id, plot_data, CONFIG)
   }
   
-  # ===================================================================
-  # 4. 绘制图形
-  # ===================================================================
-  
+  # 绘图
   p_overlay <- plot_celltype_density_overlay(df, density_data, sample_id, CONFIG)
   p_composition <- plot_zone_composition(zone_composition, sample_id, CONFIG)
   
-  # 保存图形
+  # 保存
   overlay_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_overlay.png", sample_id))
   composition_file <- file.path(CONFIG$output$plot_dir, sprintf("%s_composition.png", sample_id))
   
-  ggsave(overlay_file, plot = p_overlay, width = 16, height = 12, dpi = 300, bg = "white")
-  ggsave(composition_file, plot = p_composition, width = 14, height = 10, dpi = 300, bg = "white")
+  ggsave(overlay_file, p_overlay, width = 16, height = 12, dpi = 300, bg = "white")
+  ggsave(composition_file, p_composition, width = 14, height = 10, dpi = 300, bg = "white")
   
-  # 保存数据
   zone_comp_file <- file.path(CONFIG$output$data_dir, sprintf("%s_zone_composition.csv", sample_id))
   write.csv(zone_composition, zone_comp_file, row.names = FALSE)
   
-  # 统计信息
+  # 统计
   n_spots <- nrow(df)
-  n_high_density <- sum(!is.na(df$density_zone))
-  n_celltypes <- length(setdiff(unique(df$celltype_clean), "Unknown"))
+  n_high <- sum(!is.na(df$density_zone))
+  n_types <- length(setdiff(unique(df$celltype_clean), "Unknown"))
   
-  cat(sprintf("  ✅ %d spots | %d high | %d celltypes\n", n_spots, n_high_density, n_celltypes))
+  cat(sprintf("  ✅ %d spots | %d high | %d types\n", n_spots, n_high, n_types))
   
   return(list(
     density_data = density_data,
     zone_composition = zone_composition,
     plots = list(overlay = p_overlay, composition = p_composition),
-    stats = list(
-      n_spots = n_spots,
-      n_high_density = n_high_density,
-      n_celltypes = n_celltypes
-    ),
+    stats = list(n_spots = n_spots, n_high_density = n_high, n_celltypes = n_types),
     from_cache = FALSE
   ))
 }
@@ -556,72 +451,48 @@ process_single_sample <- function(df, sample_id, CONFIG) {
 # 创建全局颜色方案
 # ===================================================================
 
-#' 创建全局统一颜色方案
-#'
-#' @param data_list 数据框列表
-#' @param celltype_col 细胞类型列名
-#' @param n_zones 密度区域数量
-#' @return 颜色方案列表
-#'
 create_global_color_scheme <- function(data_list, celltype_col, n_zones = 10) {
   
   cat("\n🎨 生成全局颜色方案...\n")
   
   # 收集所有细胞类型
-  all_celltypes <- lapply(data_list, function(df) {
-    ct <- df[[celltype_col]]
-    ct <- standardize_celltype_names(ct, mode = "underscore", title_case = TRUE)
-    ct <- ct[ct != "Unknown"]
-    return(unique(ct))
-  })
+  all_celltypes <- unique(unlist(lapply(data_list, function(df) {
+    ct <- standardize_celltype_names(df[[celltype_col]], mode = "underscore", title_case = TRUE)
+    ct[ct != "Unknown"]
+  })))
   
-  all_celltypes_unique <- sort(unique(unlist(all_celltypes)))
-  n_celltypes <- length(all_celltypes_unique)
+  all_celltypes <- sort(all_celltypes)
+  n_celltypes <- length(all_celltypes)
   
-  cat(sprintf("  📊 发现 %d 个细胞类型（标准化后）\n", n_celltypes))
+  cat(sprintf("  📊 发现 %d 个细胞类型\n", n_celltypes))
   
   # 打印列表
   if (n_celltypes <= 10) {
-    for (ct in all_celltypes_unique) {
-      cat(sprintf("     • %s\n", ct))
-    }
+    for (ct in all_celltypes) cat(sprintf("     • %s\n", ct))
   } else {
-    for (i in 1:10) {
-      cat(sprintf("     • %s\n", all_celltypes_unique[i]))
-    }
+    for (i in 1:10) cat(sprintf("     • %s\n", all_celltypes[i]))
     cat(sprintf("     ... 还有 %d 个\n", n_celltypes - 10))
   }
   
   # 生成颜色
-  celltype_colors <- get_celltype_colors(all_celltypes_unique)
+  celltype_colors <- get_celltype_colors(all_celltypes)
   zone_colors <- get_zone_colors(n_zones)
   names(zone_colors) <- sprintf("Zone_%d", 0:(n_zones - 1))
   
-  cat(sprintf("  ✅ 颜色方案完成 (%d 细胞类型 + %d 区域)\n", n_celltypes, n_zones))
+  cat(sprintf("  ✅ 完成 (%d 类型 + %d 区域)\n", n_celltypes, n_zones))
   
-  return(list(
-    celltype = celltype_colors,
-    density_zone = zone_colors
-  ))
+  list(celltype = celltype_colors, density_zone = zone_colors)
 }
 
 
 # ===================================================================
-# 综合分析 (带缓存统计)
+# 综合分析
 # ===================================================================
 
-#' 运行细胞类型分布综合分析
-#'
-#' @param data_list 数据框列表
-#' @param sample_ids 样本ID向量
-#' @param CONFIG 配置列表
-#' @return 综合分析结果
-#'
 run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
   
-  cat("\n")
-  cat("╔════════════════════════════════════════════════════════════╗\n")
-  cat("║  细胞类型在密度区域中的分布分析                          ║\n")
+  cat("\n╔════════════════════════════════════════════════════════════╗\n")
+  cat("║  细胞类型分布分析                                        ║\n")
   cat("╚════════════════════════════════════════════════════════════╝\n")
   
   # 清理过期缓存
@@ -629,20 +500,16 @@ run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
     clean_expired_cache(CONFIG)
   }
   
-  # 显示缓存模式
   if (CONFIG$debug_mode && !is.null(CONFIG$cache_dir)) {
-    cat(sprintf("\n🔧 调试模式: 开启\n"))
-    cat(sprintf("📂 缓存目录: %s\n", CONFIG$cache_dir))
+    cat(sprintf("\n🔧 调试模式开启\n📂 缓存: %s\n", CONFIG$cache_dir))
   }
   
-  # 创建全局颜色方案
+  # 创建颜色方案
   CONFIG$colors <- create_global_color_scheme(
-    data_list = data_list,
-    celltype_col = CONFIG$params$celltype_col,
-    n_zones = CONFIG$params$n_zones
+    data_list, CONFIG$params$celltype_col, CONFIG$params$n_zones
   )
   
-  # 处理每个样本
+  # 处理样本
   cat("\n🔬 处理样本...\n")
   
   results_list <- list()
@@ -651,11 +518,7 @@ run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
   for (i in seq_along(data_list)) {
     cat(sprintf("\n[%2d/%2d]", i, length(data_list)))
     
-    result <- process_single_sample(
-      df = data_list[[i]],
-      sample_id = sample_ids[i],
-      CONFIG = CONFIG
-    )
+    result <- process_single_sample(data_list[[i]], sample_ids[i], CONFIG)
     
     if (!is.null(result$from_cache) && result$from_cache) {
       n_from_cache <- n_from_cache + 1
@@ -664,7 +527,7 @@ run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
     results_list[[sample_ids[i]]] <- result
   }
   
-  # 打印缓存统计
+  # 缓存统计
   if (CONFIG$debug_mode && n_from_cache > 0) {
     cat(sprintf("\n💾 缓存命中: %d/%d (%.1f%%)\n", 
                 n_from_cache, length(data_list), 
@@ -677,132 +540,92 @@ run_celltype_analysis <- function(data_list, sample_ids, CONFIG) {
   combined_data <- do.call(rbind, lapply(names(results_list), function(sid) {
     comp <- results_list[[sid]]$zone_composition
     comp$sample <- sid
-    return(comp)
+    comp
   }))
   
   combined_file <- file.path(CONFIG$output$data_dir, "combined_zone_composition.csv")
   write.csv(combined_data, combined_file, row.names = FALSE)
   cat(sprintf("  ✅ %s\n", basename(combined_file)))
   
-  # 绘制热图
+  # 热图
   cat("\n📊 生成热图...\n")
-  
   p_heatmap <- plot_combined_heatmap(combined_data, CONFIG)
-  
   heatmap_file <- file.path(CONFIG$output$plot_dir, "combined_heatmap.png")
-  ggsave(heatmap_file, plot = p_heatmap, width = 18, height = 14, dpi = 300, bg = "white")
+  ggsave(heatmap_file, p_heatmap, width = 18, height = 14, dpi = 300, bg = "white")
   cat(sprintf("  ✅ %s\n", basename(heatmap_file)))
   
-  # 绘制综合分析图
-  cat("\n📊 生成综合分析图...\n")
-  
+  # 综合图
+  cat("\n📊 生成综合图...\n")
   p_combined <- plot_combined_analysis(combined_data, CONFIG)
-  
   combined_plot_file <- file.path(CONFIG$output$plot_dir, "combined_analysis.png")
-  ggsave(combined_plot_file, plot = p_combined, width = 20, height = 16, dpi = 300, bg = "white")
+  ggsave(combined_plot_file, p_combined, width = 20, height = 16, dpi = 300, bg = "white")
   cat(sprintf("  ✅ %s\n", basename(combined_plot_file)))
   
-  # 生成统计摘要
-  cat("\n📊 生成统计摘要...\n")
-  
+  # 统计摘要
+  cat("\n📊 生成统计...\n")
   summary_stats <- generate_summary_statistics(combined_data, CONFIG)
-  
   summary_file <- file.path(CONFIG$output$data_dir, "summary_statistics.csv")
   write.csv(summary_stats, summary_file, row.names = FALSE)
   cat(sprintf("  ✅ %s\n", basename(summary_file)))
   
-  # 完成
-  cat("\n")
-  cat("╔════════════════════════════════════════════════════════════╗\n")
+  cat("\n╔════════════════════════════════════════════════════════════╗\n")
   cat("║  ✅ 分析完成！                                            ║\n")
-  cat("╚════════════════════════════════════════════════════════════╝\n")
-  cat("\n")
+  cat("╚════════════════════════════════════════════════════════════╝\n\n")
   
-  return(list(
+  list(
     individual_results = results_list,
     combined_data = combined_data,
     summary_statistics = summary_stats,
-    combined_plots = list(
-      heatmap = p_heatmap,
-      analysis = p_combined
-    ),
+    combined_plots = list(heatmap = p_heatmap, analysis = p_combined),
     config = CONFIG,
     cache_stats = list(
       n_from_cache = n_from_cache,
       total = length(data_list),
       cache_hit_rate = 100 * n_from_cache / length(data_list)
     )
-  ))
+  )
 }
 
 
 # ===================================================================
-# 主接口函数（兼容原有调用 - 自适应配置）
+# 主接口函数
 # ===================================================================
 
-#' 细胞类型Niche分析主函数
-#'
-#' @param sample_list 样本列表
-#' @param CONFIG 配置对象
-#' @param seurat_basename Seurat对象基础名称
-#' @return 分析结果
-#'
 analyze_celltype_niche <- function(sample_list, CONFIG, seurat_basename = NULL) {
   
-  # 提取样本ID
   sample_ids <- names(sample_list)
   
-  # ===================================================================
-  # 🔧 自适应配置：检查并初始化 CONFIG$output 结构
-  # ===================================================================
-  
+  # 自适应配置输出目录
   if (is.null(CONFIG$output) || is.null(CONFIG$output$plot_dir) || is.null(CONFIG$output$data_dir)) {
     
-    cat("   🔧 初始化输出目录结构 (celltype)...\n")
+    cat("   🔧 初始化输出目录...\n")
     
-    # 定义辅助操作符（如果不存在）
-    if (!exists("%||%", mode = "function")) {
-      `%||%` <- function(a, b) if (is.null(a)) b else a
-    }
+    `%||%` <- function(a, b) if (is.null(a)) b else a
     
-    # 确定基础图形和数据目录
     base_figure_dir <- NULL
     base_metadata_dir <- NULL
     
-    # 方案1: 优先从 CONFIG$dirs 推断
-    if (!is.null(CONFIG$dirs) && !is.null(CONFIG$dirs$figure)) {
+    if (!is.null(CONFIG$dirs$figure)) {
       base_figure_dir <- CONFIG$dirs$figure
-      base_metadata_dir <- CONFIG$metadata_dir %||% 
-                           file.path(dirname(base_figure_dir), "metadata")
-    } 
-    # 方案2: 从 CONFIG$figure_dir 推断
-    else if (!is.null(CONFIG$figure_dir)) {
+      base_metadata_dir <- CONFIG$metadata_dir %||% file.path(dirname(base_figure_dir), "metadata")
+    } else if (!is.null(CONFIG$figure_dir)) {
       base_figure_dir <- CONFIG$figure_dir
-      base_metadata_dir <- CONFIG$metadata_dir %||% 
-                           file.path(dirname(base_figure_dir), "metadata")
-    }
-    # 方案3: 从 CONFIG$output_dir 推断
-    else if (!is.null(CONFIG$output_dir)) {
+      base_metadata_dir <- CONFIG$metadata_dir %||% file.path(dirname(base_figure_dir), "metadata")
+    } else if (!is.null(CONFIG$output_dir)) {
       base_figure_dir <- file.path(CONFIG$output_dir, "figure")
       base_metadata_dir <- file.path(CONFIG$output_dir, "metadata")
-    }
-    # 方案4: 从 CONFIG$output_base_dir 推断
-    else if (!is.null(CONFIG$output_base_dir)) {
-      if (!is.null(seurat_basename)) {
-        base_dir <- file.path(CONFIG$output_base_dir, seurat_basename)
+    } else if (!is.null(CONFIG$output_base_dir)) {
+      base_dir <- if (!is.null(seurat_basename)) {
+        file.path(CONFIG$output_base_dir, seurat_basename)
       } else {
-        base_dir <- CONFIG$output_base_dir
+        CONFIG$output_base_dir
       }
       base_figure_dir <- file.path(base_dir, "figure")
       base_metadata_dir <- file.path(base_dir, "metadata")
-    }
-    # 方案5: 最后兜底
-    else {
-      stop("❌ 无法推断输出目录，CONFIG 中缺少必要的路径信息\n",
-           "   请确保 CONFIG 包含以下任一项: dirs$figure, figure_dir, output_dir, output_base_dir")
+    } else {
+      stop("❌ 无法推断输出目录")
     }
     
-    # 创建 output 结构
     CONFIG$output <- list(
       base_dir = dirname(base_figure_dir),
       plot_dir = file.path(base_figure_dir, "celltype"),
@@ -813,46 +636,26 @@ analyze_celltype_niche <- function(sample_list, CONFIG, seurat_basename = NULL) 
     cat(sprintf("      📁 数据: %s\n", CONFIG$output$data_dir))
   }
   
-  # ===================================================================
-  # 确保输出目录存在
-  # ===================================================================
-  
-  for (dir_name in names(CONFIG$output)) {
-    dir_path <- CONFIG$output[[dir_name]]
+  # 创建目录
+  for (dir_path in CONFIG$output) {
     if (!is.null(dir_path) && !dir.exists(dir_path)) {
       dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
-      cat(sprintf("   📁 创建目录: %s\n", basename(dir_path)))
     }
   }
   
-  # ===================================================================
   # 运行分析
-  # ===================================================================
-  
-  results <- run_celltype_analysis(
-    data_list = sample_list,
-    sample_ids = sample_ids,
-    CONFIG = CONFIG
-  )
-  
-  return(results)
+  run_celltype_analysis(data_list = sample_list, sample_ids = sample_ids, CONFIG = CONFIG)
 }
 
 
 # ===================================================================
-# 导出可用函数列表
+# 导出
 # ===================================================================
 
-cat("✅ 08_plot_celltype.R 已加载 (支持调试缓存 + 自适应配置)\n")
-cat("📚 可用函数:\n")
-cat("  主函数:\n")
-cat("    - analyze_celltype_niche(sample_list, CONFIG, seurat_basename)\n")
-cat("    - run_celltype_analysis(data_list, sample_ids, CONFIG)\n")
-cat("  缓存管理:\n")
-cat("    - list_cache_info(CONFIG)           # 列出缓存信息\n")
-cat("    - clear_all_cache(CONFIG)           # 清除所有缓存\n")
-cat("    - clean_expired_cache(CONFIG)       # 清理过期缓存\n")
-cat("  辅助函数:\n")
-cat("    - create_global_color_scheme(data_list, celltype_col, n_zones)\n")
-cat("    - standardize_celltype_names(names, mode, title_case)\n")
-cat("\n")
+cat("✅ 08_plot_celltype.R 加载完成 (v2.4 修复版)\n")
+cat("📚 主要函数:\n")
+cat("  - analyze_celltype_niche(sample_list, CONFIG, seurat_basename)\n")
+cat("  - run_celltype_analysis(data_list, sample_ids, CONFIG)\n")
+cat("  - create_global_color_scheme(data_list, celltype_col, n_zones)\n")
+cat("  - list_cache_info(CONFIG)\n")
+cat("  - clear_all_cache(CONFIG)\n\n")
