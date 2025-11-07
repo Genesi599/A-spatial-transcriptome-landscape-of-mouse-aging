@@ -23,7 +23,7 @@ CONFIG <- list(
   # ===== 分析参数 =====
   threshold_quantile = 0.95,
   niche_dist_method = "Euclidean",
-  n_workers = 6,
+  n_workers = 12,
   
   # ===== 绘图参数 =====
   plot = list(
