@@ -1,10 +1,10 @@
 # ===================================================================
-# 08_plot_celltype.R (修复版 - 简洁)
+# 08_plot_celltype.R (不标准化细胞类型名称)
 # 细胞类型在密度区域中的分布分析
-# Author: Assistant | Date: 2025-11-07 | Version: 2.4
+# Author: Assistant | Date: 2025-11-07 | Version: 2.5
 # ===================================================================
 
-cat("🔧 加载 08_plot_celltype.R (修复版)...\n")
+cat("🔧 加载 08_plot_celltype.R (无标准化版)...\n")
 
 # ===================================================================
 # 加载依赖工具函数
@@ -59,11 +59,9 @@ generate_plot_cache_key <- function(sample_id, CONFIG) {
   
   key_params <- list(
     sample_id = sample_id,
-    density_threshold = CONFIG$params$density_threshold_percentile,
     n_zones = CONFIG$params$n_zones,
-    grid_resolution = CONFIG$params$grid_resolution,
     celltype_col = CONFIG$params$celltype_col,
-    version = "v2.4"
+    version = "v2.5"
   )
   
   digest::digest(key_params, algo = "md5")
@@ -210,64 +208,7 @@ clear_all_cache <- function(CONFIG, confirm = TRUE) {
 
 
 # ===================================================================
-# 细胞类型名称标准化（✅ 修复版）
-# ===================================================================
-
-standardize_celltype_names <- function(names, mode = "underscore", title_case = TRUE) {
-  
-  # 确保是字符向量
-  if (!is.character(names)) {
-    names <- as.character(names)
-  }
-  
-  # 基础清理
-  names <- trimws(names)
-  names[is.na(names) | names == "" | names == "NA"] <- "Unknown"
-  
-  # 统一分隔符
-  if (mode == "underscore") {
-    names <- gsub("-", "_", names)
-    names <- gsub("\\s+", "_", names)
-  } else if (mode == "hyphen") {
-    names <- gsub("_", "-", names)
-    names <- gsub("\\s+", "-", names)
-  } else if (mode == "space") {
-    names <- gsub("[_-]", " ", names)
-    names <- gsub("\\s+", " ", names)
-  }
-  
-  # 去除多余分隔符
-  names <- gsub("^[_\\-\\s]+|[_\\-\\s]+$", "", names)
-  
-  # 首字母大写（✅ 修复：使用 vapply 确保向量化）
-  if (title_case) {
-    separator <- switch(mode, underscore = "_", hyphen = "-", space = " ", "_")
-    
-    names <- vapply(names, function(name) {
-      if (name == "Unknown" || name == "") return("Unknown")
-      
-      parts <- strsplit(name, sprintf("[%s]", separator))[[1]]
-      if (length(parts) == 0) return("Unknown")
-      
-      parts <- tolower(parts)
-      parts <- paste0(toupper(substring(parts, 1, 1)), substring(parts, 2))
-      paste(parts, collapse = separator)
-    }, character(1), USE.NAMES = FALSE)
-  }
-  
-  # 保留常见缩写大写
-  names <- gsub("\\b(Smc)\\b", "SMC", names, ignore.case = TRUE)
-  names <- gsub("\\b(Pp)\\b", "PP", names, ignore.case = TRUE)
-  names <- gsub("\\b(Bv)\\b", "BV", names, ignore.case = TRUE)
-  names <- gsub("\\b(Mv)\\b", "MV", names, ignore.case = TRUE)
-  names <- gsub("\\b(Tv)\\b", "TV", names, ignore.case = TRUE)
-  
-  return(names)
-}
-
-
-# ===================================================================
-# 单样本处理（✅ 修复版）
+# 单样本处理（保持原始细胞类型名称）
 # ===================================================================
 
 process_single_sample <- function(df, sample_id, CONFIG) {
@@ -313,14 +254,14 @@ process_single_sample <- function(df, sample_id, CONFIG) {
     stop("❌ 全局颜色方案未初始化！")
   }
   
-  # ✅ 不改变名称，直接使用原始细胞类型
+  # 使用原始细胞类型，只处理NA
   raw_celltypes <- df[[CONFIG$params$celltype_col]]
   
   if (is.null(raw_celltypes) || length(raw_celltypes) == 0) {
     stop(sprintf("❌ 细胞类型列 '%s' 为空", CONFIG$params$celltype_col))
   }
   
-  # 只处理NA和空值
+  # 只处理NA和空值，其他完全保持原样
   df$celltype_clean <- ifelse(
     is.na(raw_celltypes) | raw_celltypes == "", 
     "Unknown", 
@@ -329,7 +270,7 @@ process_single_sample <- function(df, sample_id, CONFIG) {
   
   # 打印细胞类型信息
   unique_types <- unique(df$celltype_clean)
-  unique_types <- unique_types[unique_types != "Unknown"]
+  unique_types <- sort(unique_types[unique_types != "Unknown"])
   n_types <- length(unique_types)
   
   cat(sprintf("  📊 细胞类型: %d 个\n", n_types))
@@ -355,7 +296,7 @@ process_single_sample <- function(df, sample_id, CONFIG) {
     warning(sprintf("  ⚠️  未知类型: %s", paste(missing_types, collapse = ", ")))
   }
   
-  # ✅ 正确调用 calculate_density_zones
+  # 计算密度区域
   density_data <- calculate_density_zones(
     df = df,
     density_bins = CONFIG$params$n_zones,
@@ -424,14 +365,14 @@ process_single_sample <- function(df, sample_id, CONFIG) {
 
 
 # ===================================================================
-# 创建全局颜色方案
+# 创建全局颜色方案（保持原始名称）
 # ===================================================================
 
 create_global_color_scheme <- function(data_list, celltype_col, n_zones = 10) {
   
   cat("\n🎨 生成全局颜色方案...\n")
   
-  # ✅ 收集所有细胞类型（不改名称）
+  # 收集所有细胞类型（保持原始名称）
   all_celltypes <- unique(unlist(lapply(data_list, function(df) {
     ct <- df[[celltype_col]]
     ct <- as.character(ct)
@@ -629,7 +570,7 @@ analyze_celltype_niche <- function(sample_list, CONFIG, seurat_basename = NULL) 
 # 导出
 # ===================================================================
 
-cat("✅ 08_plot_celltype.R 加载完成 (v2.4 修复版)\n")
+cat("✅ 08_plot_celltype.R 加载完成 (v2.5 - 无标准化)\n")
 cat("📚 主要函数:\n")
 cat("  - analyze_celltype_niche(sample_list, CONFIG, seurat_basename)\n")
 cat("  - run_celltype_analysis(data_list, sample_ids, CONFIG)\n")
