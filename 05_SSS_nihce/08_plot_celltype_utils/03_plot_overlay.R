@@ -172,6 +172,9 @@ plot_celltype_density_overlay <- function(df, density_data, sample_id, CONFIG) {
       )
     ) +
     
+    # 在等高线之前重置 color 通道
+    ggnewscale::new_scale_color() +
+
     # 3. 等高线边界
     geom_contour(
       data = contour_data,
