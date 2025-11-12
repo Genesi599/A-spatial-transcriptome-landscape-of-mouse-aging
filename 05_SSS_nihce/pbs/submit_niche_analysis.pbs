@@ -1,15 +1,18 @@
 #!/bin/bash
-#PBS -l nodes=1:ppn=10,mem=150gb
+#PBS -l nodes=1:ppn=10,mem=100gb
 #PBS -N Niche_Analysis
 #PBS -M yh_599@163.com
 #PBS -m ea
+#PBS -o /data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce/logs/
+#PBS -e /data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce/logs/
 
-module load R/4.3.0
+source /data/home/quj_lab/yanghang/miniconda3/etc/profile.d/conda.sh
+conda activate r-env
 
-WORK_DIR="/data/home/quj_lab/yanghang/your_project_dir"
+WORK_DIR="/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce"
 GENE_LIST_DIR="/dellstorage09/quj_lab/yanghang/spatial/ref"
 OUTPUT_DIR="/dellstorage09/quj_lab/yanghang/spatial"
-SEURAT_DIR="/your/actual/seurat/files/directory"
+SEURAT_DIR="/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds"
 
 cd "$WORK_DIR"
 
