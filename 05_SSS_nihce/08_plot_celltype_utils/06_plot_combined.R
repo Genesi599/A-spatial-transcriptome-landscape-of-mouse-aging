@@ -58,9 +58,9 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
     geom_boxplot(
       alpha = 0.8, 
       outlier.shape = 16, 
-      outlier.size = 1.5, 
-      color = "gray30", 
-      linewidth = 0.5
+      outlier.size = 2, 
+      color = "gray20", 
+      linewidth = 0.6
     ) +
     scale_fill_manual(
       values = zone_colors_global,
@@ -73,36 +73,34 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
       drop = FALSE
     ) +
     labs(
-      title = "Cell Type Percentage Distribution by Density Zone",
-      subtitle = sprintf(
-        "Data from %d samples | %d cell types (global colors)", 
-        length(unique(combined_data$sample)),
-        length(all_celltypes)
-      ),
-      x = "Density Zone (Zone_0=Core → Higher=Outer)",
+      x = "Density Zone",
       y = "Percentage (%)"
     ) +
-    theme_bw() +
+    theme_bw(base_size = 14) +
     theme(
-      plot.title = element_text(hjust = 0.5, face = "bold", 
-                                size = 14, margin = margin(b = 5)),
-      plot.subtitle = element_text(hjust = 0.5, size = 10, 
-                                   color = "gray30", 
-                                   margin = margin(b = 10)),
-      axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
-      axis.text.y = element_text(size = 9),
-      axis.title = element_text(size = 11, face = "bold"),
-      strip.background = element_rect(fill = "gray90", 
-                                      color = "gray70"),
-      strip.text = element_text(face = "bold", size = 10),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+      axis.text.y = element_text(size = 12),
+      axis.title = element_text(size = 14, face = "bold"),
+      strip.background = element_rect(fill = "gray95", 
+                                      color = "gray50", 
+                                      linewidth = 0.5),
+      strip.text = element_text(face = "bold", size = 13),
       panel.grid.minor = element_blank(),
-      plot.margin = margin(15, 15, 10, 15)
+      panel.grid.major = element_line(linewidth = 0.3),
+      plot.margin = margin(10, 10, 10, 10),
+      panel.border = element_rect(color = "gray50", linewidth = 0.5)
     )
   
   stacked_data <- combined_data %>%
+    dplyr::group_by(sample, density_zone) %>%
+    dplyr::mutate(total_pct = sum(percentage, na.rm = TRUE)) %>%
+    dplyr::ungroup() %>%
+    dplyr::mutate(
+      normalized_pct = percentage / total_pct * 100
+    ) %>%
     dplyr::group_by(density_zone, celltype_clean) %>%
     dplyr::summarise(
-      mean_pct = mean(percentage, na.rm = TRUE),
+      mean_pct = mean(normalized_pct, na.rm = TRUE),
       .groups = "drop"
     )
   
@@ -124,56 +122,47 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
   p2 <- ggplot(stacked_data, 
                aes(x = density_zone, y = mean_pct, 
                    fill = celltype_clean)) +
-    geom_col(position = "stack", width = 0.7, alpha = 0.9) +
+    geom_col(position = "stack", width = 0.75, alpha = 0.95) +
     scale_fill_manual(
       values = celltype_colors_global,
       name = "Cell Type",
       breaks = all_celltypes,
       drop = FALSE
     ) +
+    scale_y_continuous(expand = c(0, 0), limits = c(0, 100)) +
     labs(
-      title = "Cell Type Composition Across Density Zones",
-      subtitle = "Mean percentage (stacked) across all samples",
-      x = "Density Zone (Zone_0=Core → Higher=Outer)",
-      y = "Mean Percentage (%)"
+      x = "Density Zone",
+      y = "Composition (%)"
     ) +
-    theme_classic() +
+    theme_classic(base_size = 14) +
     theme(
-      plot.title = element_text(hjust = 0.5, face = "bold", 
-                                size = 14, margin = margin(b = 5)),
-      plot.subtitle = element_text(hjust = 0.5, size = 10, 
-                                   color = "gray30", 
-                                   margin = margin(b = 10)),
-      axis.text = element_text(size = 10),
-      axis.title = element_text(size = 11, face = "bold"),
-      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+      axis.text.y = element_text(size = 12),
+      axis.title = element_text(size = 14, face = "bold"),
+      axis.line = element_line(linewidth = 0.6, color = "gray20"),
+      axis.ticks = element_line(linewidth = 0.6, color = "gray20"),
       legend.position = "right",
-      legend.title = element_text(size = 11, face = "bold"),
-      legend.text = element_text(size = 9),
-      legend.key.height = unit(0.6, "cm"),
-      legend.key.width = unit(0.5, "cm"),
-      panel.grid.major.y = element_line(color = "gray90"),
+      legend.title = element_text(size = 13, face = "bold"),
+      legend.text = element_text(size = 11),
+      legend.key.height = unit(0.7, "cm"),
+      legend.key.width = unit(0.6, "cm"),
+      panel.grid.major.y = element_line(color = "gray85", 
+                                       linewidth = 0.3),
       panel.grid.major.x = element_blank(),
       panel.grid.minor = element_blank(),
-      plot.margin = margin(10, 15, 15, 15)
+      plot.margin = margin(10, 10, 10, 10)
     )
   
   p_combined <- p1 / p2 + 
-    plot_layout(heights = c(2, 1)) +
-    plot_annotation(
-      caption = paste0(
-        "Global color scheme: consistent across all samples. ",
-        "Stacked bars show mean composition per zone."
-      ),
-      theme = theme(
-        plot.caption = element_text(size = 9, color = "gray40", 
-                                   hjust = 1, margin = margin(t = 10))
-      )
-    )
+    plot_layout(heights = c(2.5, 1))
   
-  cat("   ✅ 综合分析图绘制完成 (叠加柱状图)\n")
+  cat("   ✅ 综合分析图绘制完成\n")
   
-  return(p_combined)
+  return(list(
+    combined = p_combined,
+    boxplot = p1,
+    barplot = p2
+  ))
 }
 
 get_zone_colors <- function(n_zones) {

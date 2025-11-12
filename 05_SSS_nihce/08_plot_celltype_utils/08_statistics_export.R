@@ -5,7 +5,8 @@
 
 generate_zone_celltype_statistics <- function(
     sample_ids, 
-    results_list, 
+    results_list,
+    seurat_list,  # 新增参数
     CONFIG) {
   
   cat("\n📊 生成Zone-Celltype统计数据...\n")
@@ -18,13 +19,10 @@ generate_zone_celltype_statistics <- function(
       
       comp <- result$zone_composition
       
-      sample_df <- result$sample_metadata
-      tissue_val <- if (!is.null(sample_df$tissue)) {
-        unique(sample_df$tissue)[1]
-      } else NA_character_
-      age_val <- if (!is.null(sample_df$age)) {
-        unique(sample_df$age)[1]
-      } else NA_character_
+      # 从对应的 Seurat 对象获取
+      meta <- seurat_list[[sid]]@meta.data
+      tissue_val <- unique(meta$tissue)[1]
+      age_val <- unique(meta$age)[1]
       
       data.frame(
         sample_id = sid,
