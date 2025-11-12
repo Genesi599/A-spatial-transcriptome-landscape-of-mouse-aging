@@ -32,7 +32,7 @@ CONFIG <- list(
     dpi = 300
   ),
   
-  debug_mode = TRUE,
+  debug_mode = FALSE,
   debug_sample_limit = 2,
   save_full_object = FALSE,
   
