@@ -1,7 +1,7 @@
 # 00_config.R
 
 CONFIG <- list(
-  work_dir = "/data/home/quj_lab/yanghang/...",
+  work_dir = "/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce",
   output_base_dir = "/dellstorage09/quj_lab/yanghang/spatial",
   
   gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/clock_genes.txt",
@@ -10,7 +10,7 @@ CONFIG <- list(
   
   batch_mode = TRUE,
   seurat_path = NULL,
-  seurat_dir = "/dellstorage01/quj_lab/zhangbin/.../seurat_rds",
+  seurat_dir = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds",
   seurat_pattern = "\\.rds$",
   recursive_search = FALSE,
   specific_files = NULL,

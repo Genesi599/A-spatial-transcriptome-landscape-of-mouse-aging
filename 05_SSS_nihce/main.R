@@ -48,8 +48,9 @@ options(error = function() {
 # ===================================================================
 # 加载配置和模块
 # ===================================================================
-
-source("00_config.R")
+if (!exists("CONFIG")) {
+  source("00_config.R")
+}
 source("01_setup.R")
 source("02_utils.R")
 source("03_load_data.R")

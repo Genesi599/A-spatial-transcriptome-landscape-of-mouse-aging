@@ -31,7 +31,9 @@ echo "File: $GENE_LIST_FILE"
 
 Rscript - <<EOF
 source("00_config.R")
+source("main.R")
 
+# 在加载完后再覆盖配置
 CONFIG\$work_dir <- "$WORK_DIR"
 CONFIG\$seurat_dir <- "$SEURAT_DIR"
 CONFIG\$output_base_dir <- "$OUTPUT_DIR"
@@ -39,7 +41,6 @@ CONFIG\$gene_list_path <- "$GENE_LIST_FILE"
 CONFIG\$batch_mode <- TRUE
 CONFIG\$n_workers <- 10
 
-source("main.R")
 main_batch()
 EOF
 
