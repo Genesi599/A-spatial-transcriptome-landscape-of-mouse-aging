@@ -101,7 +101,11 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
     dplyr::group_by(density_zone) %>%
     dplyr::mutate(
       zone_total = sum(mean_pct, na.rm = TRUE),
-      normalized_pct = mean_pct / zone_total * 100
+      normalized_pct = if_else(
+        zone_total > 0,
+        mean_pct / zone_total * 100,  # 强制归一化到100%
+        0
+      )
     ) %>%
     dplyr::ungroup() %>%
     dplyr::select(-zone_total, -mean_pct) %>%
@@ -121,6 +125,14 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
       celltype_clean = factor(celltype_clean, levels = all_celltypes),
       density_zone = factor(density_zone, levels = zone_levels)
     )
+
+  # 验证归一化结果
+  verify_totals <- stacked_data %>%
+    group_by(density_zone) %>%
+    summarise(total = sum(mean_pct))
+
+  cat("\n✅ 归一化后的Zone总和:\n")
+  print(verify_totals)
   
   p2 <- ggplot(stacked_data, 
                aes(x = density_zone, y = mean_pct, 
