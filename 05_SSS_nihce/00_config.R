@@ -1,20 +1,20 @@
-# 00_config.R (添加缓存设置)
+# 00_config.R (支持多基因列表)
 
 CONFIG <- list(
   # ===== 路径设置 =====
-  work_dir = "/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce",
+  work_dir = "/data/home/quj_lab/yanghang/...",
   output_base_dir = "/dellstorage09/quj_lab/yanghang/spatial",
   
-  # 数据路径
-  gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/NET_gene_list_mouse.txt",
+  # ✅ 修改：基因列表可以是单个文件或目录
+  gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref",
+  gene_list_pattern = "\\.txt$",  # 匹配 .txt 文件
   
-  # ✅ 缓存路径（新增）
   cache_dir = "/dellstorage09/quj_lab/yanghang/spatial/cache",
   
   # ===== 批量处理设置 =====
-  batch_mode = FALSE,
-  seurat_path = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds/Hippocampus_4-13-19M.rds",
-  seurat_dir = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds",
+  batch_mode = TRUE,
+  seurat_path = "...",
+  seurat_dir = "...",
   seurat_pattern = "\\.rds$",
   recursive_search = FALSE,
   specific_files = NULL,
@@ -39,58 +39,40 @@ CONFIG <- list(
   
   # ===== 调试参数 =====
   debug_mode = TRUE,
-  debug_sample_limit = 3,
+  debug_sample_limit = 2,
   save_full_object = FALSE,
   
   # ===== 缓存参数 =====
-  cache_max_age_hours = NULL  # ✅ 缓存有效期（小时），NULL = 永久有效
+  cache_max_age_hours = NULL
 )
 
-# ===================================================================
-# 初始化缓存目录
-# ===================================================================
-
+# 缓存目录初始化
 if (!is.null(CONFIG$cache_dir)) {
   if (!dir.exists(CONFIG$cache_dir)) {
-    dir.create(CONFIG$cache_dir, recursive = TRUE, showWarnings = FALSE)
+    dir.create(CONFIG$cache_dir, recursive = TRUE, 
+               showWarnings = FALSE)
     cat(sprintf("✅ 创建缓存目录: %s\n", CONFIG$cache_dir))
-  } else {
-    cat(sprintf("✅ 缓存目录: %s\n", CONFIG$cache_dir))
   }
 }
 
-# ===================================================================
-# 打印配置信息
-# ===================================================================
-
-cat(sprintf("\n╔═══════════════════════════════════════════════════════════╗\n"))
-cat(sprintf("║                    配置信息                                ║\n"))
-cat(sprintf("╚═══════════════════════════════════════════════════════════╝\n\n"))
+# 配置打印
+cat("\n╔════════════════════════════════════════════════╗\n")
+cat("║                  配置信息                      ║\n")
+cat("╚════════════════════════════════════════════════╝\n\n")
 
 if (CONFIG$batch_mode) {
-  cat(sprintf("运行模式: 批量处理\n"))
+  cat("运行模式: 批量处理\n")
   cat(sprintf("输入目录: %s\n", CONFIG$seurat_dir))
-  cat(sprintf("文件模式: %s\n", CONFIG$seurat_pattern))
-  cat(sprintf("递归搜索: %s\n", ifelse(CONFIG$recursive_search, "是", "否")))
-  
-  if (!is.null(CONFIG$specific_files)) {
-    cat(sprintf("指定文件: %s\n", paste(CONFIG$specific_files, collapse = ", ")))
-  }
-  
-  if (!is.null(CONFIG$exclude_files)) {
-    cat(sprintf("排除文件: %s\n", paste(CONFIG$exclude_files, collapse = ", ")))
-  }
+  cat(sprintf("基因列表: %s\n", CONFIG$gene_list_path))  # ✅ 修改
 } else {
-  cat(sprintf("运行模式: 单文件处理\n"))
-  cat(sprintf("Seurat 文件: %s\n", basename(CONFIG$seurat_path)))
+  cat("运行模式: 单文件处理\n")
+  cat(sprintf("Seurat: %s\n", basename(CONFIG$seurat_path)))
+  cat(sprintf("基因列表: %s\n", CONFIG$gene_list_path))  # ✅ 修改
 }
 
 cat(sprintf("输出目录: %s\n", CONFIG$output_base_dir))
-cat(sprintf("缓存目录: %s\n", ifelse(is.null(CONFIG$cache_dir), "未设置", CONFIG$cache_dir)))  # ✅ 新增
-cat(sprintf("缓存有效期: %s\n", ifelse(is.null(CONFIG$cache_max_age_hours), "永久", sprintf("%d小时", CONFIG$cache_max_age_hours))))  # ✅ 新增
-cat(sprintf("阈值分位数: %.2f (Top %.0f%%)\n", 
-            CONFIG$threshold_quantile, 
-            (1 - CONFIG$threshold_quantile) * 100))
-cat(sprintf("并行工作数: %d\n", CONFIG$n_workers))
-cat(sprintf("调试模式: %s\n", ifelse(CONFIG$debug_mode, "开启", "关闭")))
-cat(sprintf("\n"))
+cat(sprintf("缓存目录: %s\n", 
+            ifelse(is.null(CONFIG$cache_dir), 
+                   "未设置", CONFIG$cache_dir)))
+cat(sprintf("调试模式: %s\n\n", 
+            ifelse(CONFIG$debug_mode, "开启", "关闭")))

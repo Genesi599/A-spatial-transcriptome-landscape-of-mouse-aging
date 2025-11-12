@@ -63,6 +63,8 @@ source("10_batch_processing.R")       # 批量处理
 source("11_sample_preprocessing.R")   # 样本预处理
 source("12_file_utils.R")             # 文件工具
 source("13_reporting.R")              # 报告生成
+source("14_gene_list_utils.R")       # 基因列表工具
+
 
 
 # ===================================================================
@@ -266,70 +268,72 @@ main_batch <- function() {
   
   print_batch_header()
   
-  # ----------------------------------------
-  # 1. 统一初始化环境
-  # ----------------------------------------
+  # 初始化环境
   cat("\n【初始化】环境设置\n")
-
   init_result <- initialize_environment(
     config = CONFIG,
     custom_scripts = c("niche_marker.R", "SSS_isoheight_plot.R")
   )
-
-  # ✅ 新增：接收更新后的 CONFIG
   CONFIG <- init_result$config
-
-  if (length(init_result$packages$failed) > 0) {
-    warning("⚠️  部分包加载失败，可能影响分析")
-  }
   
-  # ----------------------------------------
-  # 2. 验证输出目录
-  # ----------------------------------------
+  # 验证输出目录
   validate_output_directory(CONFIG)
   
-  # ----------------------------------------
-  # 3. 扫描输入文件
-  # ----------------------------------------
+  # 扫描 Seurat 文件
   seurat_files <- scan_seurat_files(CONFIG)
-  
   if (length(seurat_files) == 0) {
-    stop("❌ 未找到可处理的文件")
+    stop("❌ 未找到可处理的 Seurat 文件")
   }
-  
   print_file_list(seurat_files)
   
+  # ✅ 扫描基因列表文件
+  cat("\n【扫描】基因列表\n")
+  gene_files <- scan_gene_lists(
+    CONFIG$gene_list_path,
+    CONFIG$gene_list_pattern %||% "\\.txt$"
+  )
+  print_genelist_info(gene_files)
+  
   # 确认处理
+  total_tasks <- length(seurat_files) * length(gene_files)
+  cat(sprintf(
+    "\n⚠️  将处理 %d 个任务 (%d Seurat × %d 基因列表)\n",
+    total_tasks,
+    length(seurat_files),
+    length(gene_files)
+  ))
+  
   if (!confirm_batch_processing(seurat_files, CONFIG)) {
     cat("❌ 已取消处理\n")
     return(invisible(NULL))
   }
   
-  # ----------------------------------------
-  # 4. 加载基因列表（只加载一次）
-  # ----------------------------------------
-  gene_list <- load_gene_list_once(CONFIG)
+  # ✅ 批量处理（传入基因列表文件路径而非内容）
+  results <- process_all_files(
+    seurat_files, 
+    gene_files,  # 传入文件列表
+    CONFIG
+  )
   
-  # ----------------------------------------
-  # 5. 批量处理文件
-  # ----------------------------------------
-  results <- process_all_files(seurat_files, gene_list, CONFIG)
-  
-  # ----------------------------------------
-  # 6. 生成总结报告
-  # ----------------------------------------
+  # 生成总结报告
   batch_end_time <- Sys.time()
-  total_elapsed <- difftime(batch_end_time, batch_start_time, units = "mins")
+  total_elapsed <- difftime(
+    batch_end_time, batch_start_time, units = "mins"
+  )
   
   print_batch_summary(results, total_elapsed, CONFIG)
   
-  log_files <- save_batch_logs(results, batch_start_time, batch_end_time, CONFIG)
+  log_files <- save_batch_logs(
+    results, batch_start_time, batch_end_time, CONFIG
+  )
   
   cat("\n🎉 批量处理完成！\n\n")
   
   return(invisible(list(
     results = results,
-    summary = create_summary_object(results, total_elapsed, log_files)
+    summary = create_summary_object(
+      results, total_elapsed, log_files
+    )
   )))
 }
 

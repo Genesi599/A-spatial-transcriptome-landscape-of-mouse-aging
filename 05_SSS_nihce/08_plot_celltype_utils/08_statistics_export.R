@@ -1,12 +1,11 @@
 # ==================================================================
-# 08_statistics_export.R
-# 生成zone-celltype统计表格
+# 08_plot_celltype_utils\08_statistics_export.R
 # ==================================================================
 
 generate_zone_celltype_statistics <- function(
     sample_ids, 
     results_list,
-    seurat_list,  # 新增参数
+    seurat_list,
     CONFIG) {
   
   cat("\n📊 生成Zone-Celltype统计数据...\n")
@@ -18,16 +17,12 @@ generate_zone_celltype_statistics <- function(
       if (is.null(result)) return(NULL)
       
       comp <- result$zone_composition
-      
-      # 从对应的 Seurat 对象获取
       meta <- seurat_list[[sid]]@meta.data
-      tissue_val <- unique(meta$tissue)[1]
-      age_val <- unique(meta$age)[1]
       
       data.frame(
         sample_id = sid,
-        tissue = tissue_val,
-        age = age_val,
+        tissue = unique(meta$tissue)[1],
+        age = unique(meta$age)[1],
         zone = comp$density_zone,
         celltype = comp$celltype_clean,
         count = comp$count,
@@ -38,40 +33,12 @@ generate_zone_celltype_statistics <- function(
     }
   ))
   
-  zone_celltype_stats <- zone_celltype_stats %>%
+  zone_celltype_stats %>%
     dplyr::arrange(sample_id, zone, dplyr::desc(count))
-  
-  zone_summary <- zone_celltype_stats %>%
-    dplyr::group_by(zone, celltype) %>%
-    dplyr::summarise(
-      total_count = sum(count),
-      n_samples = dplyr::n(),
-      mean_count = round(mean(count), 1),
-      mean_pct = round(mean(percentage), 2),
-      .groups = "drop"
-    ) %>%
-    dplyr::arrange(zone, dplyr::desc(total_count))
-  
-  celltype_summary <- zone_celltype_stats %>%
-    dplyr::group_by(celltype) %>%
-    dplyr::summarise(
-      total_count = sum(count),
-      n_samples = length(unique(sample_id)),
-      n_zones = length(unique(zone)),
-      mean_pct_per_zone = round(mean(percentage), 2),
-      .groups = "drop"
-    ) %>%
-    dplyr::arrange(dplyr::desc(total_count))
-  
-  list(
-    main_table = zone_celltype_stats,
-    zone_summary = zone_summary,
-    celltype_summary = celltype_summary
-  )
 }
 
 save_zone_celltype_statistics <- function(
-    stats_list, 
+    stats_table, 
     output_dir, 
     prefix = "") {
   
@@ -81,68 +48,34 @@ save_zone_celltype_statistics <- function(
     dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   }
   
-  add_prefix <- function(name) {
-    if (prefix != "") paste0(prefix, "_", name) else name
+  filename <- if (prefix != "") {
+    paste0(prefix, "_zone_celltype_counts.csv")
+  } else {
+    "zone_celltype_counts.csv"
   }
   
-  saved_files <- list()
+  filepath <- file.path(output_dir, filename)
+  write.csv(stats_table, filepath, row.names = FALSE)
+  cat(sprintf("  ✅ %s (%d 行)\n", basename(filepath), 
+              nrow(stats_table)))
   
-  file1 <- file.path(
-    output_dir, 
-    add_prefix("zone_celltype_counts.csv")
-  )
-  write.csv(stats_list$main_table, file1, row.names = FALSE)
-  cat(sprintf("  ✅ %s (%d 行)\n", 
-              basename(file1), nrow(stats_list$main_table)))
-  saved_files$main_table <- file1
-  
-  file2 <- file.path(
-    output_dir, 
-    add_prefix("zone_summary.csv")
-  )
-  write.csv(stats_list$zone_summary, file2, row.names = FALSE)
-  cat(sprintf("  ✅ %s\n", basename(file2)))
-  saved_files$zone_summary <- file2
-  
-  file3 <- file.path(
-    output_dir, 
-    add_prefix("celltype_summary.csv")
-  )
-  write.csv(stats_list$celltype_summary, file3, row.names = FALSE)
-  cat(sprintf("  ✅ %s\n", basename(file3)))
-  saved_files$celltype_summary <- file3
-  
-  invisible(saved_files)
+  invisible(filepath)
 }
 
-print_statistics_summary <- function(stats_list) {
-  cat("\n" %+% strrep("=", 60) %+% "\n")
+print_statistics_summary <- function(stats_table) {
+  cat("\n", strrep("=", 60), "\n")
   cat("📊 统计摘要\n")
-  cat(strrep("=", 60) %+% "\n\n")
+  cat(strrep("=", 60), "\n\n")
   
-  n_samples <- length(unique(stats_list$main_table$sample_id))
-  cat(sprintf("🧬 样本数: %d\n", n_samples))
-  
+  cat(sprintf("🧬 样本数: %d\n", 
+              length(unique(stats_table$sample_id))))
   cat(sprintf("🔬 细胞类型: %d\n", 
-              nrow(stats_list$celltype_summary)))
-  
+              length(unique(stats_table$celltype))))
   cat(sprintf("📊 密度区域: %d\n", 
-              length(unique(stats_list$main_table$zone))))
-  
+              length(unique(stats_table$zone))))
   cat(sprintf("📈 总记录数: %s\n", 
-              format(nrow(stats_list$main_table), big.mark = ",")))
+              format(nrow(stats_table), big.mark = ",")))
   
-  cat("\n" %+% "前5个细胞类型:\n")
-  top5 <- head(stats_list$celltype_summary, 5)
-  for (i in seq_len(nrow(top5))) {
-    cat(sprintf(
-      "  %d. %s: %s 个细胞\n",
-      i, top5$celltype[i],
-      format(top5$total_count[i], big.mark = ",")
-    ))
-  }
-  
-  cat("\n" %+% strrep("=", 60) %+% "\n")
-  
+  cat("\n", strrep("=", 60), "\n")
   invisible(NULL)
 }
