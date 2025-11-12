@@ -352,19 +352,31 @@ process_single_sample <- function(df, sample_id, CONFIG) {
       CONFIG
     )
 
-    overlay_file <- file.path(
+    overlay_png <- file.path(
       CONFIG$output$plot_dir, 
       sprintf("%s_overlay.png", sample_id)
     )
-    composition_file <- file.path(
+    overlay_pdf <- file.path(
+      CONFIG$output$plot_dir, 
+      sprintf("%s_overlay.pdf", sample_id)
+    )
+    composition_png <- file.path(
       CONFIG$output$plot_dir, 
       sprintf("%s_composition.png", sample_id)
     )
+    composition_pdf <- file.path(
+      CONFIG$output$plot_dir, 
+      sprintf("%s_composition.pdf", sample_id)
+    )
 
-    ggsave(overlay_file, p_overlay, 
-           width = 16, height = 12, dpi = 300, bg = "white")
-    ggsave(composition_file, p_composition, 
-           width = 14, height = 10, dpi = 300, bg = "white")
+    ggsave(overlay_png, p_overlay, 
+          width = 16, height = 12, dpi = 300, bg = "white")
+    ggsave(overlay_pdf, p_overlay, 
+          width = 16, height = 12, bg = "white")
+    ggsave(composition_png, p_composition, 
+          width = 14, height = 10, dpi = 300, bg = "white")
+    ggsave(composition_pdf, p_composition, 
+          width = 14, height = 10, bg = "white")
 
     n_spots <- nrow(cached_data$df)
     n_high  <- sum(!is.na(cached_data$df$density_zone))
@@ -693,23 +705,35 @@ run_celltype_analysis <- function(
   
   cat("\n📊 生成热图...\n")
   p_heatmap <- plot_combined_heatmap(combined_data, CONFIG)
-  heatmap_file <- file.path(
+  heatmap_png <- file.path(
     CONFIG$output$plot_dir, 
     "combined_heatmap.png"
   )
-  ggsave(heatmap_file, p_heatmap, 
-         width = 18, height = 14, dpi = 300, bg = "white")
-  cat(sprintf("  ✅ %s\n", basename(heatmap_file)))
-  
+  heatmap_pdf <- file.path(
+    CONFIG$output$plot_dir, 
+    "combined_heatmap.pdf"
+  )
+  ggsave(heatmap_png, p_heatmap, 
+        width = 18, height = 14, dpi = 300, bg = "white")
+  ggsave(heatmap_pdf, p_heatmap, 
+        width = 18, height = 14, bg = "white")
+  cat(sprintf("  ✅ %s (PNG + PDF)\n", "combined_heatmap"))
+
   cat("\n📊 生成综合图...\n")
   p_combined <- plot_combined_analysis(combined_data, CONFIG)
-  combined_plot_file <- file.path(
+  combined_png <- file.path(
     CONFIG$output$plot_dir, 
     "combined_analysis.png"
   )
-  ggsave(combined_plot_file, p_combined, 
-         width = 20, height = 16, dpi = 300, bg = "white")
-  cat(sprintf("  ✅ %s\n", basename(combined_plot_file)))
+  combined_pdf <- file.path(
+    CONFIG$output$plot_dir, 
+    "combined_analysis.pdf"
+  )
+  ggsave(combined_png, p_combined, 
+        width = 20, height = 16, dpi = 300, bg = "white")
+  ggsave(combined_pdf, p_combined, 
+        width = 20, height = 16, bg = "white")
+  cat(sprintf("  ✅ %s (PNG + PDF)\n", "combined_analysis"))
   
   cat("\n📊 生成统计摘要...\n")
   summary_stats <- generate_summary_statistics(
