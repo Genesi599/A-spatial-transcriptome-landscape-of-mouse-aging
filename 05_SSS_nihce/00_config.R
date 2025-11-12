@@ -1,17 +1,16 @@
 # 00_config.R
 
 CONFIG <- list(
-  work_dir = "/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce",
+  work_dir = "/data/home/quj_lab/yanghang/...",
   output_base_dir = "/dellstorage09/quj_lab/yanghang/spatial",
   
-  gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref",
-  gene_list_pattern = "\\.txt$",
+  gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/clock_genes.txt",
   
   cache_dir = "/dellstorage09/quj_lab/yanghang/spatial/cache",
   
   batch_mode = TRUE,
   seurat_path = NULL,
-  seurat_dir = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds",
+  seurat_dir = "/dellstorage01/quj_lab/zhangbin/.../seurat_rds",
   seurat_pattern = "\\.rds$",
   recursive_search = FALSE,
   specific_files = NULL,
@@ -54,11 +53,14 @@ cat(strrep("=", 60), "\n\n")
 if (CONFIG$batch_mode) {
   cat("运行模式: 批量处理\n")
   cat(sprintf("输入目录: %s\n", CONFIG$seurat_dir))
-  cat(sprintf("基因列表: %s\n", CONFIG$gene_list_path))
+  cat(sprintf("基因列表: %s\n", 
+              ifelse(file.exists(CONFIG$gene_list_path),
+                     basename(CONFIG$gene_list_path),
+                     "⚠️  文件不存在")))
 } else {
   cat("运行模式: 单文件处理\n")
   cat(sprintf("Seurat: %s\n", basename(CONFIG$seurat_path)))
-  cat(sprintf("基因列表: %s\n", CONFIG$gene_list_path))
+  cat(sprintf("基因列表: %s\n", basename(CONFIG$gene_list_path)))
 }
 
 cat(sprintf("输出目录: %s\n", CONFIG$output_base_dir))

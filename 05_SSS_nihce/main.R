@@ -268,7 +268,6 @@ main_batch <- function() {
   
   print_batch_header()
   
-  # 初始化环境
   cat("\n【初始化】环境设置\n")
   init_result <- initialize_environment(
     config = CONFIG,
@@ -276,31 +275,32 @@ main_batch <- function() {
   )
   CONFIG <- init_result$config
   
-  # 验证输出目录
   validate_output_directory(CONFIG)
   
-  # 扫描 Seurat 文件
   seurat_files <- scan_seurat_files(CONFIG)
   if (length(seurat_files) == 0) {
     stop("❌ 未找到可处理的 Seurat 文件")
   }
   print_file_list(seurat_files)
   
-  # ✅ 扫描基因列表文件
-  cat("\n【扫描】基因列表\n")
-  gene_files <- scan_gene_lists(
-    CONFIG$gene_list_path,
-    CONFIG$gene_list_pattern %||% "\\.txt$"
-  )
-  print_genelist_info(gene_files)
+  cat("\n【加载】基因列表\n")
+  if (!file.exists(CONFIG$gene_list_path)) {
+    stop(sprintf("❌ 基因列表文件不存在: %s", 
+                 CONFIG$gene_list_path))
+  }
   
-  # 确认处理
-  total_tasks <- length(seurat_files) * length(gene_files)
+  gene_list <- readLines(CONFIG$gene_list_path)
+  gene_name <- tools::file_path_sans_ext(
+    basename(CONFIG$gene_list_path)
+  )
+  
+  cat(sprintf("   📋 %s (%d genes)\n", 
+              gene_name, length(gene_list)))
+  
+  total_tasks <- length(seurat_files)
   cat(sprintf(
-    "\n⚠️  将处理 %d 个任务 (%d Seurat × %d 基因列表)\n",
-    total_tasks,
-    length(seurat_files),
-    length(gene_files)
+    "\n⚠️  将处理 %d 个 Seurat 文件\n",
+    total_tasks
   ))
   
   if (!confirm_batch_processing(seurat_files, CONFIG)) {
@@ -308,14 +308,10 @@ main_batch <- function() {
     return(invisible(NULL))
   }
   
-  # ✅ 批量处理（传入基因列表文件路径而非内容）
-  results <- process_all_files(
-    seurat_files, 
-    gene_files,  # 传入文件列表
-    CONFIG
-  )
+  results <- lapply(seurat_files, function(sf) {
+    process_seurat_file(sf, gene_list, CONFIG)
+  })
   
-  # 生成总结报告
   batch_end_time <- Sys.time()
   total_elapsed <- difftime(
     batch_end_time, batch_start_time, units = "mins"
@@ -331,6 +327,7 @@ main_batch <- function() {
   
   return(invisible(list(
     results = results,
+    gene_list = gene_name,
     summary = create_summary_object(
       results, total_elapsed, log_files
     )

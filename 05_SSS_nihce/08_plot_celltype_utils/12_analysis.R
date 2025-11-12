@@ -229,6 +229,20 @@ run_celltype_analysis <- function(
   
   print_statistics_summary(zone_stats)
   
+  gene_list_name <- if (!is.null(CONFIG$gene_list_path)) {
+    tools::file_path_sans_ext(basename(CONFIG$gene_list_path))
+  } else {
+    NULL
+  }
+  
+  summary_files <- save_aggregated_statistics(
+    zone_stats, 
+    CONFIG$output$data_dir,
+    gene_list_name
+  )
+  
+  cat("\n📦 汇总统计已生成\n")
+  
   cat(paste0(
     "\n╔═══════════════════════════════════════════════",
     "═══════════╗\n"
@@ -257,6 +271,7 @@ run_celltype_analysis <- function(
       total = length(data_list),
       cache_hit_rate = 100 * n_from_cache / length(data_list)
     ),
-    saved_files = saved_files
+    saved_files = saved_files,
+    summary_files = summary_files
   )
 }
