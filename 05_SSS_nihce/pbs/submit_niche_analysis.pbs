@@ -3,8 +3,8 @@
 #PBS -N Niche_Analysis
 #PBS -M yh_599@163.com
 #PBS -m ea
-#PBS -o /data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce/logs/
-#PBS -e /data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce/logs/
+#PBS -o /dellstorage09/quj_lab/yanghang/spatial/logs/
+#PBS -e /dellstorage09/quj_lab/yanghang/spatial/logs/
 
 source /data/home/quj_lab/yanghang/miniconda3/etc/profile.d/conda.sh
 conda activate r-env
