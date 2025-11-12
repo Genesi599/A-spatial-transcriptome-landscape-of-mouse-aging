@@ -1,31 +1,26 @@
-# 00_config.R (支持多基因列表)
+# 00_config.R
 
 CONFIG <- list(
-  # ===== 路径设置 =====
-  work_dir = "/data/home/quj_lab/yanghang/...",
+  work_dir = "/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce",
   output_base_dir = "/dellstorage09/quj_lab/yanghang/spatial",
   
-  # ✅ 修改：基因列表可以是单个文件或目录
   gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref",
-  gene_list_pattern = "\\.txt$",  # 匹配 .txt 文件
+  gene_list_pattern = "\\.txt$",
   
   cache_dir = "/dellstorage09/quj_lab/yanghang/spatial/cache",
   
-  # ===== 批量处理设置 =====
   batch_mode = TRUE,
-  seurat_path = "...",
-  seurat_dir = "...",
+  seurat_path = NULL,
+  seurat_dir = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds",
   seurat_pattern = "\\.rds$",
   recursive_search = FALSE,
   specific_files = NULL,
   exclude_files = NULL,
 
-  # ===== 分析参数 =====
   threshold_quantile = 0.95,
   niche_dist_method = "Euclidean",
   n_workers = 10,
   
-  # ===== 绘图参数 =====
   plot = list(
     contour_bins = 8,
     point_size_bg = 0.3,
@@ -37,16 +32,13 @@ CONFIG <- list(
     dpi = 300
   ),
   
-  # ===== 调试参数 =====
   debug_mode = TRUE,
   debug_sample_limit = 2,
   save_full_object = FALSE,
   
-  # ===== 缓存参数 =====
   cache_max_age_hours = NULL
 )
 
-# 缓存目录初始化
 if (!is.null(CONFIG$cache_dir)) {
   if (!dir.exists(CONFIG$cache_dir)) {
     dir.create(CONFIG$cache_dir, recursive = TRUE, 
@@ -55,19 +47,18 @@ if (!is.null(CONFIG$cache_dir)) {
   }
 }
 
-# 配置打印
-cat("\n╔════════════════════════════════════════════════╗\n")
-cat("║                  配置信息                      ║\n")
-cat("╚════════════════════════════════════════════════╝\n\n")
+cat("\n", strrep("=", 60), "\n")
+cat("配置信息\n")
+cat(strrep("=", 60), "\n\n")
 
 if (CONFIG$batch_mode) {
   cat("运行模式: 批量处理\n")
   cat(sprintf("输入目录: %s\n", CONFIG$seurat_dir))
-  cat(sprintf("基因列表: %s\n", CONFIG$gene_list_path))  # ✅ 修改
+  cat(sprintf("基因列表: %s\n", CONFIG$gene_list_path))
 } else {
   cat("运行模式: 单文件处理\n")
   cat(sprintf("Seurat: %s\n", basename(CONFIG$seurat_path)))
-  cat(sprintf("基因列表: %s\n", CONFIG$gene_list_path))  # ✅ 修改
+  cat(sprintf("基因列表: %s\n", CONFIG$gene_list_path))
 }
 
 cat(sprintf("输出目录: %s\n", CONFIG$output_base_dir))
