@@ -1,0 +1,43 @@
+#!/bin/bash
+#PBS -l nodes=1:ppn=10,mem=150gb
+#PBS -N Niche_Analysis
+#PBS -M yh_599@163.com
+#PBS -m ea
+
+module load R/4.3.0
+
+WORK_DIR="/data/home/quj_lab/yanghang/your_project_dir"
+GENE_LIST_DIR="/dellstorage09/quj_lab/yanghang/spatial/ref"
+OUTPUT_DIR="/dellstorage09/quj_lab/yanghang/spatial"
+SEURAT_DIR="/your/actual/seurat/files/directory"
+
+cd "$WORK_DIR"
+
+GENE_LIST_FILE=$(ls "$GENE_LIST_DIR"/*.txt | \
+                 sed -n "${PBS_ARRAYID}p")
+
+if [[ -z "$GENE_LIST_FILE" ]]; then
+    echo "No gene list for array ID ${PBS_ARRAYID}"
+    exit 1
+fi
+
+GENE_LIST_NAME=$(basename "$GENE_LIST_FILE" .txt)
+
+echo "Processing gene list: $GENE_LIST_NAME"
+echo "File: $GENE_LIST_FILE"
+
+Rscript - <<EOF
+source("00_config.R")
+
+CONFIG\$work_dir <- "$WORK_DIR"
+CONFIG\$seurat_dir <- "$SEURAT_DIR"
+CONFIG\$output_base_dir <- "$OUTPUT_DIR"
+CONFIG\$gene_list_path <- "$GENE_LIST_FILE"
+CONFIG\$batch_mode <- TRUE
+CONFIG\$n_workers <- 10
+
+source("main.R")
+main_batch()
+EOF
+
+echo "Finished: $GENE_LIST_NAME"
