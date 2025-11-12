@@ -91,28 +91,31 @@ plot_combined_analysis <- function(combined_data, CONFIG) {
       panel.border = element_rect(color = "gray50", linewidth = 0.5)
     )
   
+  # 修复后的叠加柱状图数据准备
   stacked_data <- combined_data %>%
-    dplyr::group_by(sample, density_zone) %>%
-    dplyr::mutate(total_pct = sum(percentage, na.rm = TRUE)) %>%
-    dplyr::ungroup() %>%
-    dplyr::mutate(
-      normalized_pct = percentage / total_pct * 100
-    ) %>%
     dplyr::group_by(density_zone, celltype_clean) %>%
     dplyr::summarise(
-      mean_pct = mean(normalized_pct, na.rm = TRUE),
+      mean_pct = mean(percentage, na.rm = TRUE),
       .groups = "drop"
-    )
-  
+    ) %>%
+    dplyr::group_by(density_zone) %>%
+    dplyr::mutate(
+      zone_total = sum(mean_pct, na.rm = TRUE),
+      normalized_pct = mean_pct / zone_total * 100
+    ) %>%
+    dplyr::ungroup() %>%
+    dplyr::select(-zone_total, -mean_pct) %>%
+    dplyr::rename(mean_pct = normalized_pct)
+
   complete_stacked_grid <- expand.grid(
     celltype_clean = all_celltypes,
     density_zone = zone_levels,
     stringsAsFactors = FALSE
   )
-  
+
   stacked_data <- complete_stacked_grid %>%
     dplyr::left_join(stacked_data, 
-                     by = c("celltype_clean", "density_zone")) %>%
+                    by = c("celltype_clean", "density_zone")) %>%
     dplyr::mutate(
       mean_pct = ifelse(is.na(mean_pct), 0, mean_pct),
       celltype_clean = factor(celltype_clean, levels = all_celltypes),
