@@ -276,6 +276,11 @@ main_batch <- function() {
   )
   CONFIG <- init_result$config
   
+  # 验证基因列表文件（使用当前 CONFIG，而非默认值）
+  if (!file.exists(CONFIG$gene_list_path)) {
+    stop(sprintf("❌ 基因列表文件不存在: %s", CONFIG$gene_list_path))
+  }
+  
   validate_output_directory(CONFIG)
   
   seurat_files <- scan_seurat_files(CONFIG)
