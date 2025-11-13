@@ -323,6 +323,10 @@ main_batch <- function() {
   log_files <- save_batch_logs(
     results, batch_start_time, batch_end_time, CONFIG
   )
+
+  aggregate_score_statistics(CONFIG$output_dir)
+
+  cat("\n🎉 批量处理完成！\n\n")
   
   cat("\n🎉 批量处理完成！\n\n")
   
