@@ -34,10 +34,15 @@ save_results <- function(seurat_obj, config) {
 #'
 export_score_statistics <- function(seurat_obj, config) {
   
-  score_col <- config$score_column
+  score_col <- config$score_column_name %||% "Clock_Gene_Score"
+  
+  if (is.null(score_col) || length(score_col) == 0 || score_col == "") {
+    warning("评分列名未设置，跳过统计导出")
+    return(invisible(NULL))
+  }
   
   if (!score_col %in% colnames(seurat_obj@meta.data)) {
-    warning(sprintf("评分列 %s 不存在", score_col))
+    warning(sprintf("评分列 %s 不存在于 meta.data", score_col))
     return(invisible(NULL))
   }
   
