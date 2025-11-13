@@ -324,10 +324,8 @@ main_batch <- function() {
     results, batch_start_time, batch_end_time, CONFIG
   )
 
-  aggregate_score_statistics(CONFIG$output_dir)
+  aggregate_score_statistics(CONFIG$output_base_dir)
 
-  cat("\n🎉 批量处理完成！\n\n")
-  
   cat("\n🎉 批量处理完成！\n\n")
   
   return(invisible(list(

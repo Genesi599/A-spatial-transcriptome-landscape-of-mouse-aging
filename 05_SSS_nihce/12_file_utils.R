@@ -104,6 +104,7 @@ print_file_list <- function(seurat_files) {
 update_config_for_file <- function(seurat_path, base_config) {
   config <- base_config
   config$seurat_path <- seurat_path
+  config$seurat_file <- seurat_path
   
   seurat_basename <- tools::file_path_sans_ext(
     basename(seurat_path))
@@ -149,6 +150,71 @@ load_gene_list_once <- function(CONFIG) {
   gene_list <- load_gene_list(CONFIG)
   cat(sprintf("✅ 加载了 %d 个基因\n\n", length(gene_list)))
   return(gene_list)
+}
+
+save_results <- function(seurat_obj, config) {
+  cat("💾 保存结果...\n")
+  
+  seurat_basename <- tools::file_path_sans_ext(
+    basename(config$seurat_file)
+  )
+  
+  metadata_file <- file.path(
+    config$metadata_dir, 
+    sprintf("%s_metadata.csv", seurat_basename)
+  )
+  write.csv(seurat_obj@meta.data, metadata_file, row.names = TRUE)
+  cat(sprintf("   ✅ Metadata: %s\n", basename(metadata_file)))
+  
+  export_score_statistics(seurat_obj, config, seurat_basename)
+  
+  if (config$save_full_object) {
+    rds_file <- file.path(
+      config$metadata_dir, 
+      sprintf("%s_with_niche.rds", seurat_basename)
+    )
+    saveRDS(seurat_obj, rds_file)
+    cat(sprintf("   ✅ RDS: %s\n", basename(rds_file)))
+  }
+  
+  cat("✅ 结果保存完成\n\n")
+}
+
+export_score_statistics <- function(seurat_obj, config, seurat_basename) {
+  
+  score_col <- config$score_column
+  
+  if (!score_col %in% colnames(seurat_obj@meta.data)) {
+    warning(sprintf("评分列 %s 不存在", score_col))
+    return(invisible(NULL))
+  }
+  
+  scores <- seurat_obj@meta.data[[score_col]]
+  
+  stats_df <- data.frame(
+    metric = c("mean", "median", "sd", "min", "max", 
+               "q25", "q75", "n_cells"),
+    value = c(
+      mean(scores, na.rm = TRUE),
+      median(scores, na.rm = TRUE),
+      sd(scores, na.rm = TRUE),
+      min(scores, na.rm = TRUE),
+      max(scores, na.rm = TRUE),
+      quantile(scores, 0.25, na.rm = TRUE),
+      quantile(scores, 0.75, na.rm = TRUE),
+      length(scores)
+    )
+  )
+  
+  output_file <- file.path(
+    config$output_dir,
+    sprintf("%s_score_statistics.csv", seurat_basename)
+  )
+  
+  write.csv(stats_df, output_file, row.names = FALSE)
+  cat(sprintf("   💾 评分统计: %s\n", basename(output_file)))
+  
+  return(invisible(stats_df))
 }
 
 cat("✅ 12_file_utils.R 已加载\n")
