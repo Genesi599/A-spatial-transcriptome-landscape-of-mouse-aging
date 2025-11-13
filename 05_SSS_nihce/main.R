@@ -285,12 +285,7 @@ main_batch <- function() {
   print_file_list(seurat_files)
   
   cat("\n【加载】基因列表\n")
-  if (!file.exists(CONFIG$gene_list_path)) {
-    stop(sprintf("❌ 基因列表文件不存在: %s", 
-                 CONFIG$gene_list_path))
-  }
-  
-  gene_list <- readLines(CONFIG$gene_list_path)
+  gene_list <- load_gene_list_once(CONFIG)
   gene_name <- tools::file_path_sans_ext(
     basename(CONFIG$gene_list_path)
   )
