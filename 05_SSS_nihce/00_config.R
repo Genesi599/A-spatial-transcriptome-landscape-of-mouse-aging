@@ -15,7 +15,7 @@ CONFIG <- list(
   recursive_search = FALSE,
   specific_files = NULL,
   exclude_files = NULL,
-  score_column_name = "Clock_Gene_Score1",
+  score_column_name = "ClockGene_Score1",
   threshold_quantile = 0.95,
   niche_dist_method = "Euclidean",
   n_workers = 10,
