@@ -52,6 +52,7 @@ if (!exists("CONFIG")) {
   source("00_config.R")
 }
 source("01_setup.R")
+
 source("02_utils.R")
 source("03_load_data.R")
 source("04_module_score.R")
@@ -281,6 +282,11 @@ main_batch <- function() {
     custom_scripts = c("niche_marker.R", "SSS_isoheight_plot.R")
   )
   CONFIG <- init_result$config
+
+  cat(sprintf("post-init CONFIG$gene_list_path: '%s' cls=%s len=%d\n",
+            CONFIG$gene_list_path %||% "<NULL>",
+            class(CONFIG$gene_list_path)[1],
+            length(CONFIG$gene_list_path)))
   
   # 验证基因列表文件（使用当前 CONFIG，而非默认值）
   if (!file.exists(CONFIG$gene_list_path)) {

@@ -69,3 +69,8 @@ cat(sprintf("缓存目录: %s\n",
                    "未设置", CONFIG$cache_dir)))
 cat(sprintf("调试模式: %s\n\n", 
             ifelse(CONFIG$debug_mode, "开启", "关闭")))
+
+cat(sprintf("00_config.R END: '%s' cls=%s len=%d\n",
+            CONFIG$gene_list_path %||% "<NULL>",
+            class(CONFIG$gene_list_path)[1],
+            length(CONFIG$gene_list_path)))
