@@ -3,7 +3,7 @@
 # Module Score 计算
 # ===================================================================
 
-calculate_module_score <- function(seurat_obj, genes, config) {
+calculate_module_score <- function(seurat_obj, genes, config, use_cache = FALSE) {
   cat("🧮 计算 Clock Gene Module Score...\n")
   
   score_name <- "ClockGene_Score"
@@ -14,7 +14,7 @@ calculate_module_score <- function(seurat_obj, genes, config) {
   cache_file <- file.path(config$cache_dir, 
                           sprintf("module_score_%s.rds", cache_key))
   
-  if (file.exists(cache_file)) {
+  if (use_cache && file.exists(cache_file)) {
     score_data <- load_cache(cache_file, "Module Score")
     seurat_obj[[final_col]] <- score_data[[final_col]]
   } else {
@@ -26,7 +26,11 @@ calculate_module_score <- function(seurat_obj, genes, config) {
     )
     score_data <- data.frame(temp = seurat_obj[[final_col]])
     names(score_data) <- final_col
-    save_cache(score_data, cache_file, "Module Score")
+    
+    # 仅在 use_cache 为 TRUE 时保存缓存
+    if (use_cache) {
+      save_cache(score_data, cache_file, "Module Score")
+    }
   }
   
   config$score_column_name <- final_col
