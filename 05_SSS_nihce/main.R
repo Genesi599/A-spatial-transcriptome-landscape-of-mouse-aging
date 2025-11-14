@@ -264,6 +264,12 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
 #' @return 批量处理结果
 #'
 main_batch <- function() {
+
+  ## —— 瞬间快照：谁踩了 CONFIG$gene_list_path ——
+  cat("=== entering main_batch ===\n")
+  cat(sprintf("CONFIG$gene_list_path: '%s'\n", CONFIG$gene_list_path))
+  cat(sprintf("class: %s ; length: %d\n", class(CONFIG$gene_list_path), length(CONFIG$gene_list_path)))
+
   
   batch_start_time <- Sys.time()
   
