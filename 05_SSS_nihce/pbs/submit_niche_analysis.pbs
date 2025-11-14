@@ -1,3 +1,5 @@
+# submit_niche_analysis.pbs
+
 #!/bin/bash
 #PBS -l nodes=1:ppn=10,mem=100gb
 #PBS -N Niche_Analysis
@@ -34,6 +36,12 @@ echo "File: $GENE_LIST_FILE"
 
 # 启动 R 脚本
 Rscript - <<EOF
+## —— 调试：把变量原样打出来 ——
+cat("=== raw bash input ===\n")
+cat(sprintf("GENE_LIST_FILE (quoted): '%s'\n", "$GENE_LIST_FILE"))
+cat(sprintf("GENE_LIST_FILE (nchar): %d\n", nchar("$GENE_LIST_FILE")))
+cat(sprintf("GENE_LIST_FILE (class): %s\n", class("$GENE_LIST_FILE")))
+cat("=== end ===\n")
 source("00_config.R")  # 加载配置文件
 
 CONFIG\$work_dir <- "$WORK_DIR"
