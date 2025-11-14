@@ -2,6 +2,12 @@
 # 08_plot_celltype.R (主入口)
 # Version: 2.7.1
 # ==================================================
+## —— 快照：谁踩了 CONFIG$gene_list_path ——
+cat(sprintf("%s: '%s'  class=%s  len=%d\n",
+            basename(getSrcDirectory(function() NULL)),
+            CONFIG$gene_list_path,
+            class(CONFIG$gene_list_path),
+            length(CONFIG$gene_list_path)))
 
 cat("🔧 加载 08_plot_celltype.R (v2.7.1)...\n")
 

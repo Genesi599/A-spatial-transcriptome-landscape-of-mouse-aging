@@ -2,6 +2,12 @@
 # ===================================================================
 # 10_batch_processing.R
 # ===================================================================
+## —— 快照：谁踩了 CONFIG$gene_list_path ——
+cat(sprintf("%s: '%s'  class=%s  len=%d\n",
+            basename(getSrcDirectory(function() NULL)),
+            CONFIG$gene_list_path,
+            class(CONFIG$gene_list_path),
+            length(CONFIG$gene_list_path)))
 
 process_all_files <- function(seurat_files, gene_list, CONFIG) {
   is_multi <- is.character(gene_list) && length(gene_list) > 1 && 

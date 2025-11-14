@@ -2,7 +2,13 @@
 # ===================================================================
 # 01_setup.R
 # ===================================================================
-
+## —— 快照：谁踩了 CONFIG$gene_list_path ——
+cat(sprintf("%s: '%s'  class=%s  len=%d\n",
+            basename(getSrcDirectory(function() NULL)),
+            CONFIG$gene_list_path,
+            class(CONFIG$gene_list_path),
+            length(CONFIG$gene_list_path)))
+            
 setup_environment <- function(config) {
   cat("\n", strrep("=", 60), "\n")
   cat("环境初始化\n")

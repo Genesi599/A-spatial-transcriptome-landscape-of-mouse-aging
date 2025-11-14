@@ -4,6 +4,12 @@
 # ===================================================================
 # 样本预处理模块
 # ===================================================================
+## —— 快照：谁踩了 CONFIG$gene_list_path ——
+cat(sprintf("%s: '%s'  class=%s  len=%d\n",
+            basename(getSrcDirectory(function() NULL)),
+            CONFIG$gene_list_path,
+            class(CONFIG$gene_list_path),
+            length(CONFIG$gene_list_path)))
 
 #' 预处理样本（一次性切分所有样本）
 #'

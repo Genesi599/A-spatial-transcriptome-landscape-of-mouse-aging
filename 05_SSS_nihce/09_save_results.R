@@ -2,6 +2,12 @@
 # ===================================================================
 # 保存结果
 # ===================================================================
+## —— 快照：谁踩了 CONFIG$gene_list_path ——
+cat(sprintf("%s: '%s'  class=%s  len=%d\n",
+            basename(getSrcDirectory(function() NULL)),
+            CONFIG$gene_list_path,
+            class(CONFIG$gene_list_path),
+            length(CONFIG$gene_list_path)))
 
 save_results <- function(seurat_obj, config) {
   cat("💾 保存结果...\n")

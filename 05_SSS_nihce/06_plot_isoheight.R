@@ -3,6 +3,12 @@
 # 等高线密度图绘制模块（串联版 - 无并行依赖）
 # 功能：绘制 Clock Gene 等高线密度图
 # ===================================================================
+## —— 快照：谁踩了 CONFIG$gene_list_path ——
+cat(sprintf("%s: '%s'  class=%s  len=%d\n",
+            basename(getSrcDirectory(function() NULL)),
+            CONFIG$gene_list_path,
+            class(CONFIG$gene_list_path),
+            length(CONFIG$gene_list_path)))
 
 library(ggplot2)
 
