@@ -39,7 +39,7 @@ source("00_config.R")  # 加载配置文件
 CONFIG\$work_dir <- "$WORK_DIR"
 CONFIG\$seurat_dir <- "$SEURAT_DIR"
 CONFIG\$output_base_dir <- file.path("$OUTPUT_DIR", "$GENE_LIST_NAME")
-CONFIG\$gene_list_path <- "$GENE_LIST_FILE"  # 这里应该确认是有效路径
+CONFIG\$gene_list_path <- "$GENE_LIST_FILE"  # 注意这里必须用引号括起来
 CONFIG\$batch_mode <- TRUE
 CONFIG\$n_workers <- 10
 
