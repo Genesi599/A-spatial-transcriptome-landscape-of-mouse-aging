@@ -44,13 +44,6 @@ cat(sprintf("GENE_LIST_FILE (class): %s\n", class("$GENE_LIST_FILE")))
 cat("=== end ===\n")
 source("00_config.R")  # 加载配置文件
 
-trace(source, quote(
-  if (exists("CONFIG") && !is.null(CONFIG$gene_list_path))
-    cat(sprintf("TRACE %s: '%s' cls=%s len=%d\n",
-                expr, CONFIG$gene_list_path,
-                class(CONFIG$gene_list_path)[1], length(CONFIG$gene_list_path)))
-), print = FALSE)
-
 CONFIG\$work_dir <- "$WORK_DIR"
 CONFIG\$seurat_dir <- "$SEURAT_DIR"
 CONFIG\$output_base_dir <- file.path("$OUTPUT_DIR", "$GENE_LIST_NAME")
