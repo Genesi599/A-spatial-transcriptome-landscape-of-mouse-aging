@@ -53,10 +53,14 @@ cat(strrep("=", 60), "\n\n")
 if (CONFIG$batch_mode) {
   cat("运行模式: 批量处理\n")
   cat(sprintf("输入目录: %s\n", CONFIG$seurat_dir))
-  cat(sprintf("基因列表: %s\n", 
-              ifelse(file.exists(CONFIG$gene_list_path),
-                     basename(CONFIG$gene_list_path),
-                     "⚠️  文件不存在")))
+  gene_list_desc <- if (is.null(CONFIG$gene_list_path)) {
+    "⚠️  文件未指定"
+  } else if (file.exists(CONFIG$gene_list_path)) {
+    basename(CONFIG$gene_list_path)
+  } else {
+    "⚠️  文件不存在"
+  }
+  cat(sprintf("基因列表: %s\n", gene_list_desc))
 } else {
   cat("运行模式: 单文件处理\n")
   cat(sprintf("Seurat: %s\n", basename(CONFIG$seurat_path)))
