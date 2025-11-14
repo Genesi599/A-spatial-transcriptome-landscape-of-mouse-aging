@@ -34,7 +34,7 @@ save_results <- function(seurat_obj, config) {
 #'
 export_score_statistics <- function(seurat_obj, config) {
   
-  score_col <- config$score_column_name %||% "Clock_Gene_Score"
+  score_col <- config$score_column_name %||% "ClockGene_Score1"
   
   if (is.null(score_col) || length(score_col) == 0 || score_col == "") {
     warning("评分列名未设置，跳过统计导出")
