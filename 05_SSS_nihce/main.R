@@ -281,7 +281,16 @@ main_batch <- function() {
     config = CONFIG,
     custom_scripts = c("niche_marker.R", "SSS_isoheight_plot.R")
   )
-  CONFIG <- init_result$config
+
+  # ---------- 只补缺失字段，保留 PBS 传进来的值 ----------
+  CONFIG$n_workers   <- init_result$config$n_workers   %||% CONFIG$n_workers
+  CONFIG$output_dir  <- init_result$config$output_dir  %||% CONFIG$output_dir
+  CONFIG$cache_dir   <- init_result$config$cache_dir   %||% CONFIG$cache_dir
+  CONFIG$figure_dir  <- init_result$config$figure_dir  %||% CONFIG$figure_dir
+  CONFIG$metadata_dir<- init_result$config$metadata_dir%||% CONFIG$metadata_dir
+  CONFIG$params      <- init_result$config$params      %||% CONFIG$params
+  CONFIG$plot        <- init_result$config$plot        %||% CONFIG$plot
+  # --------------------------------------------------------
 
   cat(sprintf("post-init CONFIG$gene_list_path: '%s' cls=%s len=%d\n",
             CONFIG$gene_list_path %||% "<NULL>",
@@ -364,6 +373,9 @@ if (!exists("%||%")) {
 # ===================================================================
 # 运行主流程
 # ===================================================================
+
+# 清掉之前可能残留的 trace
+untrace(source)
 
 if (!interactive()) {
   main_batch()
