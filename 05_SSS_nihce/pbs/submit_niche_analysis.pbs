@@ -16,26 +16,25 @@ SEURAT_DIR="/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_tran
 
 cd "$WORK_DIR"
 
-# 获取基因列表文件
 GENE_LIST_FILE=$(ls "$GENE_LIST_DIR"/*.txt | sed -n "${PBS_ARRAYID}p")
+
+# 打印用以调试的输出
+echo "PBS_ARRAYID: ${PBS_ARRAYID}"
+echo "Gene list path: ${GENE_LIST_FILE}"
 
 if [[ -z "$GENE_LIST_FILE" ]]; then
     echo "No gene list for array ID ${PBS_ARRAYID}"
     exit 1
 fi
 
-# 获取基因列表名称
 GENE_LIST_NAME=$(basename "$GENE_LIST_FILE" .txt)
 
 echo "Processing gene list: $GENE_LIST_NAME"
 echo "File: $GENE_LIST_FILE"
 
-# 启动 R 脚本
 Rscript - <<EOF
-# 加载默认配置
 source("00_config.R")
 
-# 更新 CONFIG 中特定的变量
 CONFIG\$work_dir <- "$WORK_DIR"
 CONFIG\$seurat_dir <- "$SEURAT_DIR"
 CONFIG\$output_base_dir <- file.path("$OUTPUT_DIR", "$GENE_LIST_NAME")
@@ -43,12 +42,14 @@ CONFIG\$gene_list_path <- "$GENE_LIST_FILE"
 CONFIG\$batch_mode <- TRUE
 CONFIG\$n_workers <- 10
 
-# 打印配置信息以供调试
+# 打印配置以用于调试
 cat("CONFIG settings:\n")
-cat(sprintf("  work_dir: %s\n", CONFIG\$work_dir))
-cat(sprintf("  seurat_dir: %s\n", CONFIG\$seurat_dir))
-cat(sprintf("  output_base_dir: %s\n", CONFIG\$output_base_dir))
 cat(sprintf("  gene_list_path: %s\n", CONFIG\$gene_list_path))
+
+# 检查文件是否存在
+if (!file.exists(CONFIG\$gene_list_path)) {
+    stop(sprintf("❌ 基因列表文件不存在: %s", CONFIG\$gene_list_path))
+}
 
 # 运行主批处理流程
 source("main.R")
