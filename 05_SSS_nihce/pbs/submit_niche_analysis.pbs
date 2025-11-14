@@ -32,6 +32,7 @@ GENE_LIST_NAME=$(basename "$GENE_LIST_FILE" .txt)
 echo "Processing gene list: $GENE_LIST_NAME"
 echo "File: $GENE_LIST_FILE"
 
+# 启动 R 脚本
 Rscript - <<EOF
 source("00_config.R")
 
@@ -44,11 +45,16 @@ CONFIG\$n_workers <- 10
 
 # 打印配置以用于调试
 cat("CONFIG settings:\n")
+cat(sprintf("  work_dir: %s\n", CONFIG\$work_dir))
+cat(sprintf("  seurat_dir: %s\n", CONFIG\$seurat_dir))
+cat(sprintf("  output_base_dir: %s\n", CONFIG\$output_base_dir))
 cat(sprintf("  gene_list_path: %s\n", CONFIG\$gene_list_path))
 
 # 检查文件是否存在
 if (!file.exists(CONFIG\$gene_list_path)) {
     stop(sprintf("❌ 基因列表文件不存在: %s", CONFIG\$gene_list_path))
+} else {
+    cat("✅ 基因列表文件已找到\n")
 }
 
 # 运行主批处理流程
