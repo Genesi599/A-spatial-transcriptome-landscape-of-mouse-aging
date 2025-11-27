@@ -1,5 +1,5 @@
 # ===================================================================
-# 01_color_schemes.R
+# 08_plot_celltype_utils/01_color_schemes.R
 # 统一的颜色方案管理（全局配色版）
 # Author: Assistant
 # Date: 2025-11-06
@@ -129,7 +129,7 @@ get_contour_colors <- function(n_breaks) {
 #' color_scheme <- create_global_color_scheme(sample_list, "celltype", 10)
 #' CONFIG$colors <- color_scheme
 #'
-create_global_color_scheme <- function(sample_list, celltype_col, density_bins) {
+create_global_color_scheme <- function(sample_list, celltype_col, density_bins, config) {
   
   cat("\n🎨 生成全局统一颜色方案...\n")
   
@@ -218,8 +218,37 @@ create_global_color_scheme <- function(sample_list, celltype_col, density_bins) 
   )
   
   cat("   ✅ 全局颜色方案已创建\n\n")
+
+    # 保存颜色方案到 CSV
+  save_global_color_scheme_to_csv(color_scheme, config)
   
   return(color_scheme)
+}
+
+
+#' 保存全局颜色方案到 CSV 文件
+#'
+#' @param color_scheme 颜色方案对象（来自 create_global_color_scheme）
+#' @param output_dir 输出目录（metadata 文件夹）
+#' 
+#' @return 无返回值
+#'
+save_global_color_scheme_to_csv <- function(color_scheme, config) {
+  
+  # 创建数据框，只包含细胞类型和颜色
+  color_data <- data.frame(
+    Cell_Type = names(color_scheme$celltype),
+    Color = color_scheme$celltype,
+    stringsAsFactors = FALSE
+  )
+  
+  # 定义 CSV 文件名和路径
+  csv_file <- file.path(config$metadata_dir, "global_celltype_colors.csv")
+  
+  # 写入 CSV 文件
+  write.csv(color_data, csv_file, row.names = FALSE)
+  
+  cat(sprintf("✅ 全局细胞类型颜色方案已保存到: %s\n", csv_file))
 }
 
 

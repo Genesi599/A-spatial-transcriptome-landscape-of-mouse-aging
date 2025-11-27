@@ -57,6 +57,30 @@ create_global_color_scheme <- function(
   list(celltype = celltype_colors, density_zone = zone_colors)
 }
 
+#' 保存全局颜色方案到 CSV 文件
+#'
+#' @param color_scheme 颜色方案对象（来自 create_global_color_scheme）
+#' @param output_dir 输出目录（用于保存 CSV 文件的目录）
+#' 
+#' @return 无返回值
+#'
+save_global_color_scheme_to_csv <- function(color_scheme, output_dir) {
+  # 创建数据框，只包含细胞类型和颜色
+  color_data <- data.frame(
+    Cell_Type = names(color_scheme$celltype),
+    Color = color_scheme$celltype,
+    stringsAsFactors = FALSE
+  )
+  
+  # 定义 CSV 文件名和路径
+  csv_file <- file.path(output_dir, "global_celltype_colors.csv")
+  
+  # 写入 CSV 文件
+  write.csv(color_data, csv_file, row.names = FALSE)
+  
+  cat(sprintf("✅ 全局细胞类型颜色方案已保存到: %s\n", csv_file))
+}
+
 run_celltype_analysis <- function(
     data_list, 
     sample_ids, 
@@ -90,6 +114,9 @@ run_celltype_analysis <- function(
     CONFIG$params$celltype_col, 
     CONFIG$params$n_zones
   )
+
+  # 在创建颜色方案后保存到 CSV
+  save_global_color_scheme_to_csv(CONFIG$colors, CONFIG$output$data_dir)
   
   cat("\n🔬 处理样本...\n")
   

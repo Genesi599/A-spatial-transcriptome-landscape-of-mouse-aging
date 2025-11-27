@@ -289,18 +289,36 @@ process_single_sample <- function(df, sample_id, CONFIG) {
     zone_composition, sample_id, CONFIG
   )
   
-  overlay_file <- file.path(
+  # 定义文件路径
+  overlay_file_png <- file.path(
     CONFIG$output$plot_dir, 
     sprintf("%s_overlay.png", sample_id)
   )
-  composition_file <- file.path(
+  overlay_file_pdf <- file.path(
+    CONFIG$output$plot_dir, 
+    sprintf("%s_overlay.pdf", sample_id)
+  )
+
+  composition_file_png <- file.path(
     CONFIG$output$plot_dir, 
     sprintf("%s_composition.png", sample_id)
   )
-  ggsave(overlay_file, p_overlay, 
-         width = 16, height = 12, dpi = 300, bg = "white")
-  ggsave(composition_file, p_composition, 
-         width = 14, height = 10, dpi = 300, bg = "white")
+  composition_file_pdf <- file.path(
+    CONFIG$output$plot_dir, 
+    sprintf("%s_composition.pdf", sample_id)
+  )
+
+  # 保存 PNG 版本
+  ggsave(overlay_file_png, p_overlay, 
+        width = 16, height = 12, dpi = 300, bg = "white")
+  ggsave(composition_file_png, p_composition, 
+        width = 14, height = 10, dpi = 300, bg = "white")
+
+  # 保存 PDF 版本
+  ggsave(overlay_file_pdf, p_overlay, 
+        width = 16, height = 12, bg = "white")
+  ggsave(composition_file_pdf, p_composition, 
+        width = 14, height = 10, bg = "white")
   
   zone_comp_file <- file.path(
     CONFIG$output$data_dir, 
