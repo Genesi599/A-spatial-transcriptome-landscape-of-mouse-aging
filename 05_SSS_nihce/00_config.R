@@ -2,13 +2,13 @@
 
 CONFIG <- list(
   work_dir = "/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce",
-  output_base_dir = "/dellstorage09/quj_lab/yanghang/spatial/output",
   
-  # gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/clock_genes.txt",
+  output_base_dir = "/dellstorage09/quj_lab/yanghang/spatial/output",
+  gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/NET_gene_list_mouse.txt",
   
   # cache_dir = "/dellstorage09/quj_lab/yanghang/spatial/cache",
   
-  batch_mode = TRUE,
+  batch_mode = FALSE,
   seurat_path = NULL,
   seurat_dir = "/dellstorage01/quj_lab/zhangbin/published_project/mouse_spatial_transcriptome_2024/stereo_seq_data/seurat_rds",
   seurat_pattern = "\\.rds$",
@@ -19,7 +19,13 @@ CONFIG <- list(
   threshold_quantile = 0.95,
   niche_dist_method = "Euclidean",
   n_workers = 10,
+
+
+  debug_mode = TRUE,
+  debug_sample_limit = 2,
+  save_full_object = FALSE,
   
+
   plot = list(
     contour_bins = 8,
     point_size_bg = 0.3,
@@ -30,10 +36,6 @@ CONFIG <- list(
     expand_margin = 0.05,
     dpi = 300
   ),
-  
-  debug_mode = FALSE,
-  debug_sample_limit = 2,
-  save_full_object = FALSE,
   
   cache_max_age_hours = NULL
 )
