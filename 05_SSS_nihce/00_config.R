@@ -4,7 +4,7 @@ CONFIG <- list(
   work_dir = "/data/home/quj_lab/yanghang/A-spatial-transcriptome-landscape-of-mouse-aging/05_SSS_nihce",
 
   output_base_dir = "/dellstorage09/quj_lab/yanghang/spatial/output",
-  gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/NET_gene_list_mouse.txt",
+  gene_list_path = "/dellstorage09/quj_lab/yanghang/spatial/ref/  Neutrophil_extracellular_trap.txt",
   
   # cache_dir = "/dellstorage09/quj_lab/yanghang/spatial/cache",
   
@@ -24,7 +24,7 @@ CONFIG <- list(
   debug_mode = FALSE,
   debug_sample_limit = 2,
   save_full_object = FALSE,
-  
+
 
   plot = list(
     contour_bins = 8,
