@@ -27,71 +27,51 @@ GetAllCoordinates <- function(.data) {
 save_results <- function(seurat_obj, config) {
   cat("💾 保存结果...\n")
   
-  # 0. 检查并修正 metadata_dir
+  # 0. 检查输出目录
   if (is.null(config$metadata_dir) || length(config$metadata_dir) == 0) {
-    stop("config$metadata_dir 为空，请在 config 里指定输出目录")
+    stop("config$metadata_dir 为空，请在 CONFIG 或 update_config_for_file() 里设置")
   }
   if (!dir.exists(config$metadata_dir)) {
     dir.create(config$metadata_dir, recursive = TRUE, showWarnings = FALSE)
   }
   
-  # 1. 生成 / 推断 seurat_basename
-  basename <- config$seurat_basename
-  if (is.null(basename) || length(basename) == 0 || basename == "") {
-    # 尝试从其他字段推断
-    if (!is.null(config$sample_id) && nzchar(config$sample_id)) {
-      basename <- config$sample_id
-      cat("   ℹ️ seurat_basename 未设置，使用 config$sample_id 作为 basename: ",
-          basename, "\n")
-    } else if (!is.null(config$sample_name) && nzchar(config$sample_name)) {
-      basename <- config$sample_name
-      cat("   ℹ️ seurat_basename 未设置，使用 config$sample_name 作为 basename: ",
-          basename, "\n")
-    } else if (!is.null(seurat_obj@project.name) && nzchar(seurat_obj@project.name)) {
-      basename <- seurat_obj@project.name
-      cat("   ℹ️ seurat_basename 未设置，使用 Seurat@project.name 作为 basename: ",
-          basename, "\n")
-    } else {
-      stop("config$seurat_basename 为空，且无法从 sample_id / sample_name / project.name 推断，请在 config 里显式设置 seurat_basename")
-    }
+  # 1. 检查 seurat_basename
+  if (is.null(config$seurat_basename) || length(config$seurat_basename) == 0 || config$seurat_basename == "") {
+    stop("config$seurat_basename 为空，请在 process_seurat_file() 里设置 config$seurat_basename")
   }
   
-  # 2. 组合 metadata 文件路径
   metadata_file <- file.path(
     config$metadata_dir, 
-    sprintf("%s_metadata.csv", basename)
+    sprintf("%s_metadata.csv", config$seurat_basename)
   )
   
   cat("   metadata_dir   :", config$metadata_dir, "\n")
-  cat("   seurat_basename:", basename, "\n")
+  cat("   seurat_basename:", config$seurat_basename, "\n")
   cat("   metadata_file  :", metadata_file, "\n")
   
-  # 3. 取 meta.data + cellid
+  # 2. 取 meta + 坐标
   meta_df <- seurat_obj@meta.data %>%
     tibble::rownames_to_column("cellid")
   
-  # 4. 提取空间坐标（用你统一的 GetAllCoordinates）
   coords_df <- GetAllCoordinates(seurat_obj)
   
-  # 5. 合并 meta + 坐标
   meta_with_coords <- dplyr::left_join(
     meta_df,
     coords_df,
     by = "cellid"
   )
   
-  # 6. 写出 CSV（包含 cellid, meta 列, row, col）
   write.csv(meta_with_coords, metadata_file, row.names = FALSE)
   cat(sprintf("   ✅ Metadata+coords: %s\n", basename(metadata_file)))
   
-  # 7. 导出统计信息
-  export_score_statistics(seurat_obj, config)
+  # 3. 导出打分统计（注意要传 seurat_basename）
+  export_score_statistics(seurat_obj, config, config$seurat_basename)
   
-  # 8. 可选保存 RDS
+  # 4. 可选保存 RDS
   if (isTRUE(config$save_full_object)) {
     rds_file <- file.path(
       config$metadata_dir, 
-      sprintf("%s_with_niche.rds", basename)
+      sprintf("%s_with_niche.rds", config$seurat_basename)
     )
     saveRDS(seurat_obj, rds_file)
     cat(sprintf("   ✅ RDS: %s\n", basename(rds_file)))
