@@ -21,8 +21,8 @@ CONFIG <- list(
   n_workers = 10,
 
 
-  debug_mode = FALSE,
-  debug_sample_limit = 2,
+  debug_mode = TRUE,
+  debug_sample_limit = 1,
   save_full_object = FALSE,
 
 

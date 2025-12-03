@@ -26,6 +26,8 @@ GetAllCoordinates <- function(.data) {
 
 save_results <- function(seurat_obj, config) {
   cat("💾 保存结果...\n")
+  cat("   metadata_dir   :", config$metadata_dir, "\n")
+  cat("   seurat_basename:", config$seurat_basename, "\n")
   
   # 确保输出目录存在
   if (!dir.exists(config$metadata_dir)) {
@@ -37,7 +39,7 @@ save_results <- function(seurat_obj, config) {
     config$metadata_dir, 
     sprintf("%s_metadata.csv", config$seurat_basename)
   )
-  
+  cat("   metadata_file  :", metadata_file, "\n")
   # 2. meta.data 加上 cellid
   meta_df <- seurat_obj@meta.data %>%
     tibble::rownames_to_column("cellid")
