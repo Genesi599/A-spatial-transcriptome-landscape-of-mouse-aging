@@ -26,49 +26,72 @@ GetAllCoordinates <- function(.data) {
 
 save_results <- function(seurat_obj, config) {
   cat("💾 保存结果...\n")
-  cat("   metadata_dir   :", config$metadata_dir, "\n")
-  cat("   seurat_basename:", config$seurat_basename, "\n")
   
-  # 确保输出目录存在
+  # 0. 检查并修正 metadata_dir
+  if (is.null(config$metadata_dir) || length(config$metadata_dir) == 0) {
+    stop("config$metadata_dir 为空，请在 config 里指定输出目录")
+  }
   if (!dir.exists(config$metadata_dir)) {
     dir.create(config$metadata_dir, recursive = TRUE, showWarnings = FALSE)
   }
   
-  # 1. 构建 metadata 输出路径
+  # 1. 生成 / 推断 seurat_basename
+  basename <- config$seurat_basename
+  if (is.null(basename) || length(basename) == 0 || basename == "") {
+    # 尝试从其他字段推断
+    if (!is.null(config$sample_id) && nzchar(config$sample_id)) {
+      basename <- config$sample_id
+      cat("   ℹ️ seurat_basename 未设置，使用 config$sample_id 作为 basename: ",
+          basename, "\n")
+    } else if (!is.null(config$sample_name) && nzchar(config$sample_name)) {
+      basename <- config$sample_name
+      cat("   ℹ️ seurat_basename 未设置，使用 config$sample_name 作为 basename: ",
+          basename, "\n")
+    } else if (!is.null(seurat_obj@project.name) && nzchar(seurat_obj@project.name)) {
+      basename <- seurat_obj@project.name
+      cat("   ℹ️ seurat_basename 未设置，使用 Seurat@project.name 作为 basename: ",
+          basename, "\n")
+    } else {
+      stop("config$seurat_basename 为空，且无法从 sample_id / sample_name / project.name 推断，请在 config 里显式设置 seurat_basename")
+    }
+  }
+  
+  # 2. 组合 metadata 文件路径
   metadata_file <- file.path(
     config$metadata_dir, 
-    sprintf("%s_metadata.csv", config$seurat_basename)
+    sprintf("%s_metadata.csv", basename)
   )
+  
+  cat("   metadata_dir   :", config$metadata_dir, "\n")
+  cat("   seurat_basename:", basename, "\n")
   cat("   metadata_file  :", metadata_file, "\n")
-  # 2. meta.data 加上 cellid
+  
+  # 3. 取 meta.data + cellid
   meta_df <- seurat_obj@meta.data %>%
     tibble::rownames_to_column("cellid")
   
-  # 3. 用统一的 GetAllCoordinates() 提取所有 cellid 的 row/col
+  # 4. 提取空间坐标（用你统一的 GetAllCoordinates）
   coords_df <- GetAllCoordinates(seurat_obj)
-  # 此时 coords_df 至少有: cellid, row, col
   
-  # 4. 按 cellid 合并 meta 和 坐标
-  # 用 left_join 确保所有 meta 里的 cellid 都保留，缺坐标的行 row/col 为 NA
+  # 5. 合并 meta + 坐标
   meta_with_coords <- dplyr::left_join(
     meta_df,
     coords_df,
     by = "cellid"
   )
   
-  # 5. 写出 CSV：包含 cellid + meta 列 + row + col
-  # 已经有 cellid 列，就没必要再用 row.names 了
+  # 6. 写出 CSV（包含 cellid, meta 列, row, col）
   write.csv(meta_with_coords, metadata_file, row.names = FALSE)
   cat(sprintf("   ✅ Metadata+coords: %s\n", basename(metadata_file)))
   
-  # 6. 导出你的统计信息（保持原逻辑）
+  # 7. 导出统计信息
   export_score_statistics(seurat_obj, config)
   
-  # 7. 选择性保存完整 Seurat 对象
+  # 8. 可选保存 RDS
   if (isTRUE(config$save_full_object)) {
     rds_file <- file.path(
       config$metadata_dir, 
-      sprintf("%s_with_niche.rds", config$seurat_basename)
+      sprintf("%s_with_niche.rds", basename)
     )
     saveRDS(seurat_obj, rds_file)
     cat(sprintf("   ✅ RDS: %s\n", basename(rds_file)))

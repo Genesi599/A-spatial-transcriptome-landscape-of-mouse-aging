@@ -86,6 +86,7 @@ process_seurat_file <- function(seurat_path, gene_list, base_config) {
   # 1. 更新配置
   config <- update_config_for_file(seurat_path, base_config)
   seurat_basename <- tools::file_path_sans_ext(basename(seurat_path))
+  config$seurat_basename <- seurat_basename
   
   # 2. 打印处理信息
   print_file_header(seurat_basename)
