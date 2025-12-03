@@ -49,11 +49,11 @@ save_results <- function(seurat_obj, config) {
   cat("   seurat_basename:", config$seurat_basename, "\n")
   cat("   metadata_file  :", metadata_file, "\n")
   
-  # 2. 取 meta + 坐标
+  # 2. 取 meta + 坐标（注意这里已经有 cellid, row, col）
   meta_df <- seurat_obj@meta.data %>%
     tibble::rownames_to_column("cellid")
   
-  coords_df <- GetAllCoordinates(seurat_obj)
+  coords_df <- GetAllCoordinates(seurat_obj)   # 你之前的统一坐标函数
   
   meta_with_coords <- dplyr::left_join(
     meta_df,
@@ -61,8 +61,48 @@ save_results <- function(seurat_obj, config) {
     by = "cellid"
   )
   
-  write.csv(meta_with_coords, metadata_file, row.names = FALSE)
-  cat(sprintf("   ✅ Metadata+coords: %s\n", basename(metadata_file)))
+  # 2.1 检查 ClockGene_High 是否存在（密度计算需要）
+  if (!("ClockGene_High" %in% colnames(meta_with_coords))) {
+    warning("meta_with_coords 缺少 'ClockGene_High' 列，无法计算密度 zone，仅导出 meta+coords")
+    
+    write.csv(meta_with_coords, metadata_file, row.names = FALSE)
+    cat(sprintf("   ✅ Metadata+coords: %s（无 zone）\n", basename(metadata_file)))
+    
+  } else {
+    # 2.2 计算密度 zone（使用你写的 calculate_density_zones）
+    density_bins  <- config$params$n_zones        %||% 10
+    expand_margin <- config$params$expand_margin  %||% 0.1
+    
+    density_res <- calculate_density_zones(
+      df           = meta_with_coords,
+      density_bins = density_bins,
+      expand_margin = expand_margin,
+      # 列名和你 meta_with_coords 中一致
+      col_col      = "col",
+      row_col      = "row",
+      flag_col     = "ClockGene_High",
+      quiet        = TRUE
+    )
+    
+    if (is.null(density_res)) {
+      warning("calculate_density_zones 返回 NULL（高表达点不足或 KDE 失败），仅导出 meta+coords")
+      meta_with_zone <- meta_with_coords
+    } else {
+      # 2.3 把 zone 映射回每个 cell（按 col,row 对齐）
+      meta_with_zone <- meta_with_coords %>%
+        dplyr::left_join(
+          density_res$spot_zones,
+          by = c("col", "row")
+        )
+      # meta_with_zone 新增两列：
+      #   - density_zone
+      #   - density_value
+    }
+    
+    # 2.4 写出包含 zone 的汇总表
+    write.csv(meta_with_zone, metadata_file, row.names = FALSE)
+    cat(sprintf("   ✅ Metadata+coords+zone: %s\n", basename(metadata_file)))
+  }
   
   # 3. 导出打分统计（注意要传 seurat_basename）
   export_score_statistics(seurat_obj, config, config$seurat_basename)
