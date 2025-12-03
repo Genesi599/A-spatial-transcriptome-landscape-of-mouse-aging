@@ -4,11 +4,7 @@
 # 功能：绘制 Clock Gene Score 和 Distance 的空间梯度图
 # ==================================================================
 ## —— 快照：谁踩了 CONFIG$gene_list_path ——
-cat(sprintf("%s: '%s'  class=%s  len=%d\n",
-            basename(getSrcDirectory(function() NULL)),
-            CONFIG$gene_list_path,
-            class(CONFIG$gene_list_path),
-            length(CONFIG$gene_list_path)))
+
 
 #' 绘制空间梯度图（接收预切分样本，正方形平铺）
 #'

@@ -9,19 +9,61 @@ cat(sprintf("%s: '%s'  class=%s  len=%d\n",
             class(CONFIG$gene_list_path),
             length(CONFIG$gene_list_path)))
 
+GetAllCoordinates <- function(.data) {
+    .data@images %>%
+        names() %>%
+        unique() %>%
+        map_dfr(~{
+            GetTissueCoordinates(
+                    .data,
+                    image = .x,
+                    cols = c("row", "col"),
+                    scale = NULL
+                ) %>%
+            tibble::rownames_to_column(var = "cellid")
+        })
+}
+
 save_results <- function(seurat_obj, config) {
   cat("💾 保存结果...\n")
   
+  # 确保输出目录存在
+  if (!dir.exists(config$metadata_dir)) {
+    dir.create(config$metadata_dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  
+  # 1. 构建 metadata 输出路径
   metadata_file <- file.path(
     config$metadata_dir, 
     sprintf("%s_metadata.csv", config$seurat_basename)
   )
-  write.csv(seurat_obj@meta.data, metadata_file, row.names = TRUE)
-  cat(sprintf("   ✅ Metadata: %s\n", basename(metadata_file)))
   
+  # 2. meta.data 加上 cellid
+  meta_df <- seurat_obj@meta.data %>%
+    tibble::rownames_to_column("cellid")
+  
+  # 3. 用统一的 GetAllCoordinates() 提取所有 cellid 的 row/col
+  coords_df <- GetAllCoordinates(seurat_obj)
+  # 此时 coords_df 至少有: cellid, row, col
+  
+  # 4. 按 cellid 合并 meta 和 坐标
+  # 用 left_join 确保所有 meta 里的 cellid 都保留，缺坐标的行 row/col 为 NA
+  meta_with_coords <- dplyr::left_join(
+    meta_df,
+    coords_df,
+    by = "cellid"
+  )
+  
+  # 5. 写出 CSV：包含 cellid + meta 列 + row + col
+  # 已经有 cellid 列，就没必要再用 row.names 了
+  write.csv(meta_with_coords, metadata_file, row.names = FALSE)
+  cat(sprintf("   ✅ Metadata+coords: %s\n", basename(metadata_file)))
+  
+  # 6. 导出你的统计信息（保持原逻辑）
   export_score_statistics(seurat_obj, config)
   
-  if (config$save_full_object) {
+  # 7. 选择性保存完整 Seurat 对象
+  if (isTRUE(config$save_full_object)) {
     rds_file <- file.path(
       config$metadata_dir, 
       sprintf("%s_with_niche.rds", config$seurat_basename)

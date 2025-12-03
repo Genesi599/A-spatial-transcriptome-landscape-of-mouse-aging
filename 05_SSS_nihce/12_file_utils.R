@@ -158,33 +158,6 @@ load_gene_list_once <- function(CONFIG) {
   return(gene_list)
 }
 
-save_results <- function(seurat_obj, config) {
-  cat("💾 保存结果...\n")
-  
-  seurat_basename <- tools::file_path_sans_ext(
-    basename(config$seurat_file)
-  )
-  
-  metadata_file <- file.path(
-    config$metadata_dir, 
-    sprintf("%s_metadata.csv", seurat_basename)
-  )
-  write.csv(seurat_obj@meta.data, metadata_file, row.names = TRUE)
-  cat(sprintf("   ✅ Metadata: %s\n", basename(metadata_file)))
-  
-  export_score_statistics(seurat_obj, config, seurat_basename)
-  
-  if (config$save_full_object) {
-    rds_file <- file.path(
-      config$metadata_dir, 
-      sprintf("%s_with_niche.rds", seurat_basename)
-    )
-    saveRDS(seurat_obj, rds_file)
-    cat(sprintf("   ✅ RDS: %s\n", basename(rds_file)))
-  }
-  
-  cat("✅ 结果保存完成\n\n")
-}
 
 export_score_statistics <- function(seurat_obj, config, seurat_basename) {
   
